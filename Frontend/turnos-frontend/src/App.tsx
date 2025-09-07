@@ -25,27 +25,35 @@ interface PoliticaFila {
   valor_destinado: number;
   opciones_categorias?: Opcion[];
   opciones_subcategorias?: Opcion[];
+  valor_ui?: string;
 }
 
 interface EstadoFormulario {
   datos_basicos: DatosBasicosDB;
-  politicas: PoliticaFila[];           // máx 2
-  metas_slots: Array<ID | null>;       // 3 selects
-  variables_sel: ID[];                 // check múltiple (se mantiene como estaba)
+  politicas: PoliticaFila[];
+  metas_slots: Array<ID | null>;
+  variables_sel: ID[];
 }
 
 const API_BASE_DEFAULT = "http://localhost:8000";
 
 function cx(...xs: Array<string | false | null | undefined>) { return xs.filter(Boolean).join(" "); }
-function toMoney(n: number | undefined) {
+function toMoney(n?: number) {
   const v = Number(n ?? 0);
-  return v.toLocaleString("es-CO", { style: "currency", currency: "COP", maximumFractionDigits: 0 });
+  return v.toLocaleString("es-CO", {
+    style: "currency",
+    currency: "COP",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
 }
+
 async function fetchJson(path: string) {
   const res = await fetch(`${API_BASE_DEFAULT.replace(/\/$/,"")}${path}`);
   if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
   return res.json();
 }
+
 function normalizaFlex(arr: any[], posiblesNombres: string[], campoCodigo?: string): Opcion[] {
   if (!Array.isArray(arr)) return [];
   return arr.map((x) => {
@@ -57,6 +65,34 @@ function normalizaFlex(arr: any[], posiblesNombres: string[], campoCodigo?: stri
     };
   });
 }
+
+function sortById(arr: Opcion[]): Opcion[] {
+  return [...arr].sort((a, b) => a.id - b.id);
+}
+
+function sortOptions(arr: Opcion[]): Opcion[] {
+  return [...arr].sort((a, b) => {
+    const aHas = a.codigo != null;
+    const bHas = b.codigo != null;
+    if (aHas && bHas && a.codigo !== b.codigo) return Number(a.codigo) - Number(b.codigo);
+    const byNombre = a.nombre.localeCompare(b.nombre, "es", { numeric: true, sensitivity: "base" });
+    if (byNombre !== 0) return byNombre;
+    return a.id - b.id;
+  });
+}
+
+function round2(n: number) {
+  return Math.round(n * 100) / 100;
+}
+
+function parseDecimal2(raw: string): number | null {
+  const t = (raw ?? "").trim().replace(/\s+/g, "").replace(",", ".");
+  if (t === "") return 0;
+  if (!/^\d*(?:\.\d{0,2})?$/.test(t)) return null;
+  const num = Number(t);
+  return Number.isFinite(num) ? round2(num) : null;
+}
+
 
 export default function App() {
   const [datos, setDatos] = useState<EstadoFormulario>({
@@ -73,12 +109,11 @@ export default function App() {
     variables_sel: [],
   });
 
-  // Opciones maestras
   const [deps, setDeps] = useState<Opcion[]>([]);
   const [lineas, setLineas] = useState<Opcion[]>([]);
   const [programas, setProgramas] = useState<Opcion[]>([]);
   const [sectores, setSectores] = useState<Opcion[]>([]);
-  const [metas, setMetas] = useState<Opcion[]>([]);        // depende de sector
+  const [metas, setMetas] = useState<Opcion[]>([]);
   const [variables, setVariables] = useState<Opcion[]>([]);
   const [politicas, setPoliticas] = useState<Opcion[]>([]);
 
@@ -86,11 +121,13 @@ export default function App() {
   const [sending, setSending] = useState(false);
 
   const totalPoliticas = useMemo(
-    () => datos.politicas.reduce((a, b) => a + (Number(b.valor_destinado) || 0), 0),
+    () => Math.round(
+      datos.politicas.reduce((a, b) => a + (Number(b.valor_destinado) || 0), 0) * 100
+    ) / 100,
     [datos.politicas]
   );
 
-  // Carga inicial
+
   useEffect(() => {
     (async () => {
       try {
@@ -100,48 +137,44 @@ export default function App() {
           fetchJson("/llenado/variables"),
           fetchJson("/llenado/politicas"),
         ]);
-        setDeps(normalizaFlex(depsR, ["nombre_dependencia", "nombre"]));
-        setLineas(normalizaFlex(lineasR, ["nombre", "nombre_linea_estrategica"])); // línea: solo nombre
-        setVariables(normalizaFlex(varsR, ["nombre_variable", "nombre"]));
-        setPoliticas(normalizaFlex(politR, ["nombre_politica", "nombre"]));
+        setDeps(sortOptions(normalizaFlex(depsR, ["nombre_dependencia", "nombre"])));
+        setLineas(sortOptions(normalizaFlex(lineasR, ["nombre", "nombre_linea_estrategica"])));
+        setVariables(sortById(normalizaFlex(varsR, ["nombre_variable", "nombre"])));
+        setPoliticas(sortOptions(normalizaFlex(politR, ["nombre_politica", "nombre"])));
       } catch (e) { console.error(e); }
     })();
   }, []);
 
-  // Línea → Programas
   useEffect(() => {
     const idLinea = datos.datos_basicos.id_linea_estrategica;
     if (!idLinea) { setProgramas([]); return; }
     (async () => {
       try {
         const r = await fetchJson(`/llenado/programas?linea_id=${idLinea}`);
-        setProgramas(normalizaFlex(r, ["nombre_programa", "nombre"], "codigo_programa"));
+        setProgramas(sortOptions(normalizaFlex(r, ["nombre_programa", "nombre"], "codigo_programa")));
       } catch (e) { console.error(e); setProgramas([]); }
     })();
   }, [datos.datos_basicos.id_linea_estrategica]);
 
-  // Programa → Sectores
   useEffect(() => {
     const idProg = datos.datos_basicos.id_programa;
     if (!idProg) { setSectores([]); return; }
     (async () => {
       try {
         const r = await fetchJson(`/llenado/sectores?programa_id=${idProg}`);
-        setSectores(normalizaFlex(r, ["nombre_sector", "nombre"], "codigo_sector"));
+        setSectores(sortOptions(normalizaFlex(r, ["nombre_sector", "nombre"], "codigo_sector")));
       } catch (e) { console.error(e); setSectores([]); }
     })();
   }, [datos.datos_basicos.id_programa]);
 
-  // Sector → Metas
   useEffect(() => {
     const idSector = datos.datos_basicos.id_sector;
     if (!idSector) { setMetas([]); setDatos(p=> ({...p, metas_slots: [null, null, null]})); return; }
     (async () => {
       try {
         const r = await fetchJson(`/llenado/metas?sector_id=${idSector}`);
-        const ops = normalizaFlex(r, ["nombre_meta", "nombre"]);
+        const ops = sortOptions(normalizaFlex(r, ["nombre_meta", "nombre"]));
         setMetas(ops);
-        // limpiar/evitar duplicados en los 3 selects
         setDatos(p => {
           const cleaned = p.metas_slots.map(v => (v && ops.some(o=>o.id===v) ? v : null)) as Array<ID|null>;
           const seen = new Set<number>();
@@ -156,7 +189,6 @@ export default function App() {
     })();
   }, [datos.datos_basicos.id_sector]);
 
-  // Helpers
   function buildBackendPayload(state: EstadoFormulario) {
     const db = state.datos_basicos;
     const politicas_ids: ID[] = [];
@@ -414,7 +446,7 @@ export default function App() {
                         if (id!=null) {
                           try {
                             const r = await fetchJson(`/llenado/categorias?politica_id=${id}`);
-                            opciones_categorias = normalizaFlex(r, ["nombre_categoria", "nombre"]);
+                            opciones_categorias = sortOptions(normalizaFlex(r, ["nombre_categoria", "nombre"]));
                           } catch (e) { console.error(e); }
                         }
 
@@ -448,7 +480,7 @@ export default function App() {
                         if (idCat!=null) {
                           try {
                             const r = await fetchJson(`/llenado/subcategorias?categoria_id=${idCat}`);
-                            opciones_subcategorias = normalizaFlex(r, ["nombre_subcategoria", "nombre"]);
+                            opciones_subcategorias = sortOptions(normalizaFlex(r, ["nombre_subcategoria", "nombre"]));
                           } catch (e) { console.error(e); }
                         }
 
@@ -463,7 +495,7 @@ export default function App() {
                           return { ...p, politicas: arr };
                         });
                       }}
-                      opciones={row.opciones_categorias ?? []}
+                      opciones={sortOptions(row.opciones_categorias ?? [])}
                       placeholder={row.id_politica ? "Selecciona categoría" : "Primero selecciona política"}
                     />
                   </div>
@@ -478,7 +510,7 @@ export default function App() {
                         arr[idx] = { ...arr[idx], id_subcategoria: id };
                         return { ...p, politicas: arr };
                       })}
-                      opciones={row.opciones_subcategorias ?? []}
+                      opciones={sortOptions(row.opciones_subcategorias ?? [])}
                       placeholder={row.id_categoria ? "Selecciona subcategoría" : "Primero selecciona categoría"}
                     />
                   </div>
@@ -487,14 +519,42 @@ export default function App() {
                   <div>
                     <Label>Valor destinado</Label>
                     <Input
-                      type="number"
-                      value={row.valor_destinado}
-                      onChange={e=>{
-                        const v = Number(e.target.value || 0);
-                        setDatos(p=>{ const arr=[...p.politicas]; arr[idx]={...arr[idx], valor_destinado:v}; return {...p, politicas:arr};});
+                      type="text"
+                      inputMode="decimal"
+                      placeholder="0,00"
+                      value={
+                        row.valor_ui ?? (row.valor_destinado ? row.valor_destinado.toFixed(2) : "")
+                      }
+                      onChange={(e) => {
+                        const raw = e.target.value;
+                        setDatos((p) => {
+                          const arr = [...p.politicas];
+                          arr[idx] = { ...arr[idx], valor_ui: raw };
+                          return { ...p, politicas: arr };
+                        });
+                      }}
+                      onBlur={(e) => {
+                        const raw = e.target.value;
+                        const num = parseDecimal2(raw);
+                        setDatos((p) => {
+                          const arr = [...p.politicas];
+                          if (num !== null) {
+                            arr[idx] = { ...arr[idx], valor_destinado: num, valor_ui: undefined };
+                          } else {
+                            arr[idx] = { ...arr[idx], valor_ui: raw };
+                          }
+                          return { ...p, politicas: arr };
+                        });
                       }}
                     />
-                    <div className="text-[11px] text-slate-500 mt-1">{toMoney(row.valor_destinado)}</div>
+                    <div className="text-[11px] text-slate-500 mt-1">
+                      {toMoney(
+                        row.valor_ui !== undefined
+                          ?
+                            (parseDecimal2(row.valor_ui) ?? row.valor_destinado)
+                          : row.valor_destinado
+                      )}
+                    </div>
                   </div>
 
                   <div className="md:col-span-4 text-right">
@@ -550,7 +610,6 @@ export default function App() {
   );
 }
 
-/** ==== UI auxiliares ==== */
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="grid gap-2">
