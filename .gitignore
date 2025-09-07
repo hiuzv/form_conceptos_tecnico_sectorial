@@ -1,0 +1,45 @@
+# Entornos virtuales
+venv/
+env/
+.venv/
+
+# Archivos de dependencias generados
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.log
+
+# Archivos de configuración y secretos
+*.env
+.env.*
+*.ini
+*.cfg
+*.secret
+*.key
+
+# Archivos de base de datos locales
+*.sqlite3
+*.db
+*.sqlite
+
+# Archivos específicos de IDE
+.vscode/
+.idea/
+*.swp
+
+# Archivos de sistema
+.DS_Store
+Thumbs.db
+
+# Archivos de prueba y reportes
+.coverage
+htmlcov/
+.pytest_cache/
+.cache/
+
+# Documentación generada
+/site
+
+# Archivos de comandos u otros que no quieras subir
+commands.txt
