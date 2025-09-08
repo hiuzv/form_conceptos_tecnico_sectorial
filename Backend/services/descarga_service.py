@@ -1,9 +1,7 @@
 from io import BytesIO
 from pathlib import Path
 from typing import List, Tuple, Optional, Set
-
 from sqlalchemy.orm import Session
-
 from Backend.models import (
     Formulario, Metas, Meta, Sector, Programa, LineaEstrategica, Dependencia,
     Variables as VariablesRel, Politicas as PoliticasRel,
@@ -35,23 +33,28 @@ def _armar_data_para_template(db: Session, form_id: int) -> dict:
         raise ValueError("Formulario no encontrado")
 
     form, nombre_dependencia, nombre_linea, cod_prog, nom_prog, cod_sector, nom_sector = row
+
+    # Todas las metas (sin limit)
     metas = (
         db.query(Meta)
         .join(Metas, Metas.id_meta == Meta.id)
         .filter(Metas.id_formulario == form_id)
         .order_by(Meta.numero_meta)
-        .limit(3)
         .all()
     )
     numero_meta = [m.numero_meta for m in metas]
     nombre_meta = [m.nombre_meta for m in metas]
+
+    # Variables (9 flags)
     todas_vars = db.query(Variable).order_by(Variable.id).limit(9).all()
     vars_presentes: Set[int] = {
         r.id_variable for r in db.query(VariablesRel).filter(VariablesRel.id_formulario == form_id).all()
     }
     variables_flags: List[bool] = [(v.id in vars_presentes) for v in todas_vars]
     while len(variables_flags) < 9:
-        variables_flags.append(False) 
+        variables_flags.append(False)
+
+    # Políticas con valor destinado
     politicas = (
         db.query(Politica.nombre_politica, PoliticasRel.valor_destinado)
         .join(PoliticasRel, PoliticasRel.id_politica == Politica.id)
@@ -61,7 +64,9 @@ def _armar_data_para_template(db: Session, form_id: int) -> dict:
         .all()
     )
     nombre_politica = [r[0] for r in politicas]
-    valor_destinado = [r[1] for r in politicas]  
+    valor_destinado = [r[1] for r in politicas]
+
+    # Categorías
     categorias = (
         db.query(Categoria)
         .join(CategoriasRel, CategoriasRel.id_categoria == Categoria.id)
@@ -71,6 +76,8 @@ def _armar_data_para_template(db: Session, form_id: int) -> dict:
         .all()
     )
     nombre_categoria = [c.nombre_categoria for c in categorias]
+
+    # Subcategorías
     subcats = (
         db.query(Subcategoria)
         .join(SubcategoriasRel, SubcategoriasRel.id_subcategoria == Subcategoria.id)
@@ -94,7 +101,7 @@ def _armar_data_para_template(db: Session, form_id: int) -> dict:
         "nombre_meta": nombre_meta,
         "variables": variables_flags,
         "nombre_politica": nombre_politica,
-        "valor_destinado": valor_destinado, 
+        "valor_destinado": valor_destinado,
         "nombre_categoria": nombre_categoria,
         "nombre_focalización": nombre_focalizacion,
     }
@@ -109,6 +116,4 @@ def excel_formulario(db: Session, form_id: int) -> Tuple[BytesIO, str]:
     with open(out_path, "rb") as f:
         bio.write(f.read())
     bio.seek(0)
-
-    suggested_name = out_path.name
-    return bio, suggested_name
+    return bio, out_path.name
