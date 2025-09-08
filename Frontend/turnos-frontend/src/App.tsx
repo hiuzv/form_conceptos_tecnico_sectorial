@@ -31,7 +31,7 @@ interface PoliticaFila {
 interface EstadoFormulario {
   datos_basicos: DatosBasicosDB;
   politicas: PoliticaFila[];
-  metas_slots: Array<ID | null>;
+  metas_sel: ID[];       // <— metas por checkboxes
   variables_sel: ID[];
 }
 
@@ -93,7 +93,6 @@ function parseDecimal2(raw: string): number | null {
   return Number.isFinite(num) ? round2(num) : null;
 }
 
-
 export default function App() {
   const [datos, setDatos] = useState<EstadoFormulario>({
     datos_basicos: {
@@ -105,14 +104,14 @@ export default function App() {
       id_sector: null,
     },
     politicas: [{ id_politica: null, id_categoria: null, id_subcategoria: null, valor_destinado: 0 }],
-    metas_slots: [null, null, null],
+    metas_sel: [],
     variables_sel: [],
   });
 
   const [deps, setDeps] = useState<Opcion[]>([]);
   const [lineas, setLineas] = useState<Opcion[]>([]);
-  const [programas, setProgramas] = useState<Opcion[]>([]);
   const [sectores, setSectores] = useState<Opcion[]>([]);
+  const [programas, setProgramas] = useState<Opcion[]>([]);
   const [metas, setMetas] = useState<Opcion[]>([]);
   const [variables, setVariables] = useState<Opcion[]>([]);
   const [politicas, setPoliticas] = useState<Opcion[]>([]);
@@ -127,7 +126,7 @@ export default function App() {
     [datos.politicas]
   );
 
-
+  // Carga opciones base
   useEffect(() => {
     (async () => {
       try {
@@ -145,49 +144,55 @@ export default function App() {
     })();
   }, []);
 
+  // Sectores por línea
   useEffect(() => {
     const idLinea = datos.datos_basicos.id_linea_estrategica;
-    if (!idLinea) { setProgramas([]); return; }
+    if (!idLinea) { setSectores([]); return; }
     (async () => {
       try {
-        const r = await fetchJson(`/llenado/programas?linea_id=${idLinea}`);
-        setProgramas(sortOptions(normalizaFlex(r, ["nombre_programa", "nombre"], "codigo_programa")));
-      } catch (e) { console.error(e); setProgramas([]); }
-    })();
-  }, [datos.datos_basicos.id_linea_estrategica]);
-
-  useEffect(() => {
-    const idProg = datos.datos_basicos.id_programa;
-    if (!idProg) { setSectores([]); return; }
-    (async () => {
-      try {
-        const r = await fetchJson(`/llenado/sectores?programa_id=${idProg}`);
+        const r = await fetchJson(`/llenado/sectores?linea_id=${idLinea}`);
         setSectores(sortOptions(normalizaFlex(r, ["nombre_sector", "nombre"], "codigo_sector")));
       } catch (e) { console.error(e); setSectores([]); }
     })();
-  }, [datos.datos_basicos.id_programa]);
+  }, [datos.datos_basicos.id_linea_estrategica]);
 
+  // Programas por sector
   useEffect(() => {
     const idSector = datos.datos_basicos.id_sector;
-    if (!idSector) { setMetas([]); setDatos(p=> ({...p, metas_slots: [null, null, null]})); return; }
+    if (!idSector) { setProgramas([]); return; }
     (async () => {
       try {
-        const r = await fetchJson(`/llenado/metas?sector_id=${idSector}`);
+        const r = await fetchJson(`/llenado/programas?sector_id=${idSector}`);
+        setProgramas(sortOptions(normalizaFlex(r, ["nombre_programa", "nombre"], "codigo_programa")));
+      } catch (e) { console.error(e); setProgramas([]); }
+    })();
+  }, [datos.datos_basicos.id_sector]);
+
+  // Metas por programa y limpieza de selección
+  useEffect(() => {
+    const idPrograma = datos.datos_basicos.id_programa;
+    if (!idPrograma) {
+      setMetas([]);
+      setDatos(p => ({ ...p, metas_sel: [] }));
+      return;
+    }
+    (async () => {
+      try {
+        const r = await fetchJson(`/llenado/metas?programa_id=${idPrograma}`);
         const ops = sortOptions(normalizaFlex(r, ["nombre_meta", "nombre"]));
         setMetas(ops);
         setDatos(p => {
-          const cleaned = p.metas_slots.map(v => (v && ops.some(o=>o.id===v) ? v : null)) as Array<ID|null>;
-          const seen = new Set<number>();
-          const unique = cleaned.map(v => (v && !seen.has(v) ? (seen.add(v), v) : (v ? null : null)));
-          return { ...p, metas_slots: unique };
+          const valid = new Set(ops.map(o => o.id));
+          const kept = p.metas_sel.filter(id => valid.has(id));
+          return { ...p, metas_sel: kept };
         });
       } catch (e) {
         console.error(e);
         setMetas([]);
-        setDatos(p=> ({...p, metas_slots: [null, null, null]}));
+        setDatos(p => ({ ...p, metas_sel: [] }));
       }
     })();
-  }, [datos.datos_basicos.id_sector]);
+  }, [datos.datos_basicos.id_programa]);
 
   function buildBackendPayload(state: EstadoFormulario) {
     const db = state.datos_basicos;
@@ -205,7 +210,7 @@ export default function App() {
       }
     });
 
-    const metas_ids = state.metas_slots.filter((x): x is number => x!=null);
+    const metas_ids = state.metas_sel;
 
     return {
       nombre_proyecto: db.nombre_proyecto,
@@ -241,7 +246,7 @@ export default function App() {
         body: JSON.stringify(payload),
       });
       if (!crear.ok) {
-        const txt = await crear.text().catch(()=>"");
+        const txt = await crear.text().catch(()=> "");
         throw new Error(`POST /llenado/formulario → ${crear.status} ${txt || crear.statusText}`);
       }
       const resp = await crear.json().catch(()=> ({}));
@@ -250,7 +255,7 @@ export default function App() {
 
       const down = await fetch(`${API_BASE_DEFAULT.replace(/\/$/,"")}/descarga/formulario/${form_id}/excel`);
       if (!down.ok) {
-        const txt = await down.text().catch(()=>"");
+        const txt = await down.text().catch(()=> "");
         throw new Error(`GET /descarga/formulario/${form_id}/excel → ${down.status} ${txt || down.statusText}`);
       }
       const blob = await down.blob();
@@ -283,9 +288,10 @@ export default function App() {
         <div className="flex flex-wrap gap-2 text-sm">
           {[
             [1, "Datos básicos"],
-            [2, "Metas & Variables"],
-            [3, "Políticas"],
-            [4, "Revisión"],
+            [2, "Metas"],
+            [3, "Variables"],
+            [4, "Políticas"],
+            [5, "Revisión"],
           ].map(([idx, label]) => (
             <button
               key={idx}
@@ -329,67 +335,66 @@ export default function App() {
                   value={datos.datos_basicos.id_linea_estrategica}
                   onChange={(id)=> setDatos(p=> ({
                     ...p,
-                    datos_basicos: { ...p.datos_basicos, id_linea_estrategica: id, id_programa: null, id_sector: null },
+                    datos_basicos: { ...p.datos_basicos, id_linea_estrategica: id, id_sector: null, id_programa: null },
                   }))}
                   placeholder="Selecciona línea"
                 />
               </Field>
 
-              <Field label="Programa (según línea)">
+              <Field label="Sector (según línea)">
+                <SelectNative
+                  opciones={sectores}
+                  value={datos.datos_basicos.id_sector}
+                  onChange={(id)=> setDatos(p=> ({
+                    ...p,
+                    datos_basicos: { ...p.datos_basicos, id_sector: id, id_programa: null },
+                  }))}
+                  placeholder={datos.datos_basicos.id_linea_estrategica ? "Selecciona sector" : "Primero elige una línea"}
+                />
+              </Field>
+
+              <Field label="Programa (según sector)">
                 <SelectNative
                   opciones={programas}
                   value={datos.datos_basicos.id_programa}
                   onChange={(id)=> setDatos(p=> ({
                     ...p,
-                    datos_basicos: { ...p.datos_basicos, id_programa: id, id_sector: null },
+                    datos_basicos: { ...p.datos_basicos, id_programa: id },
                   }))}
-                  placeholder={datos.datos_basicos.id_linea_estrategica ? "Selecciona programa" : "Primero elige una línea"}
-                />
-              </Field>
-
-              <Field label="Sector (según programa)">
-                <SelectNative
-                  opciones={sectores}
-                  value={datos.datos_basicos.id_sector}
-                  onChange={(id)=> setDatos(p=> ({ ...p, datos_basicos: { ...p.datos_basicos, id_sector: id } }))}
-                  placeholder={datos.datos_basicos.id_programa ? "Selecciona sector" : "Primero elige un programa"}
+                  placeholder={datos.datos_basicos.id_sector ? "Selecciona programa" : "Primero elige un sector"}
                 />
               </Field>
             </CardContent>
           </Card>
         )}
 
-        {/* Paso 2: Metas & Variables */}
+        {/* Paso 2: Metas */}
         {step===2 && (
           <Card className="shadow-sm">
-            <CardContent className="p-4 grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div className="space-y-3">
-                <h3 className="font-semibold">Metas (1 a 3) — depende del Sector</h3>
-                {[0,1,2].map((slot) => {
-                  const selected = datos.metas_slots[slot];
-                  const metaSel = metas.find(m => m.id === selected || 0);
-                  return (
-                    <div key={slot} className="grid gap-1">
-                      <Label>Meta #{slot+1}</Label>
-                      <SelectNative
-                        value={selected}
-                        onChange={(id)=> {
-                          setDatos(p=>{
-                            const arr = [...p.metas_slots] as Array<ID|null>;
-                            if (id!=null && arr.some((v, i) => i!==slot && v===id)) return p;
-                            arr[slot] = id;
-                            return { ...p, metas_slots: arr };
-                          });
-                        }}
-                        opciones={metas}
-                        placeholder="Selecciona meta (opcional)"
-                      />
-                      {metaSel && <div className="text-xs text-slate-600">Meta de cuatrienio: <b>{metaSel.nombre}</b></div>}
-                    </div>
-                  );
-                })}
+            <CardContent className="p-4 space-y-2">
+              <h3 className="font-semibold">Metas — depende del Programa</h3>
+              <div className="border rounded-xl p-3 max-h-72 overflow-auto space-y-1">
+                {metas.map(o => (
+                  <CheckItem
+                    key={`m-${o.id}`}
+                    label={`${o.id} — ${o.nombre}`}
+                    checked={datos.metas_sel.includes(o.id)}
+                    onChange={(v)=> setDatos(prev => {
+                      const set = new Set<number>(prev.metas_sel);
+                      if (v) set.add(o.id); else set.delete(o.id);
+                      return { ...prev, metas_sel: Array.from(set) };
+                    })}
+                  />
+                ))}
               </div>
+            </CardContent>
+          </Card>
+        )}
 
+        {/* Paso 3: Variables */}
+        {step===3 && (
+          <Card className="shadow-sm">
+            <CardContent className="p-4">
               <div className="space-y-2">
                 <h3 className="font-semibold">Variables</h3>
                 <div className="border rounded-xl p-3 max-h-72 overflow-auto space-y-1">
@@ -411,8 +416,8 @@ export default function App() {
           </Card>
         )}
 
-        {/* Paso 3: Políticas (máx 2) */}
-        {step===3 && (
+        {/* Paso 4: Políticas (máx 2) */}
+        {step===4 && (
           <Card className="shadow-sm">
             <CardContent className="p-4 space-y-4">
               <div className="flex items-center justify-between">
@@ -574,8 +579,8 @@ export default function App() {
           </Card>
         )}
 
-        {/* Paso 4: Revisión y descarga */}
-        {step===4 && (
+        {/* Paso 5: Revisión y descarga */}
+        {step===5 && (
           <Card className="shadow-sm">
             <CardContent className="p-4 space-y-3">
               <h3 className="font-semibold">Resumen que se enviará</h3>
@@ -596,8 +601,8 @@ export default function App() {
         <div className="flex items-center justify-between">
           <Button variant="outline" onClick={()=> setStep(s=> Math.max(1, s-1))}>Atrás</Button>
           <div className="flex items-center gap-2">
-            {step<4 && <Button onClick={()=> setStep(s=> Math.min(4, s+1))}>Siguiente</Button>}
-            {step===4 && (
+            {step < 5 && <Button onClick={()=> setStep(s=> Math.min(5, s+1))}>Siguiente</Button>}
+            {step === 5 && (
               <Button onClick={crearYDescargar} className="gap-2" disabled={sending}>
                 {sending ? <Loader2 className="h-4 w-4 animate-spin"/> : <Download className="h-4 w-4"/>}
                 DESCARGAR

@@ -21,25 +21,25 @@ def lineas(db: Session = Depends(get_db)):
         for r in llenado_service.listar_lineas(db)
     ]
 
-@router.get("/programas", response_model=List[schemas.ProgramaRead])
-def programas(linea_id: int = Query(..., ge=1), db: Session = Depends(get_db)):
-    return [
-        schemas.ProgramaRead(id=r.id, codigo_programa=r.codigo_programa, nombre_programa=r.nombre_programa)
-        for r in llenado_service.listar_programas(db, linea_id)
-    ]
-
 @router.get("/sectores", response_model=List[schemas.SectorRead])
-def sectores(programa_id: int = Query(..., ge=1), db: Session = Depends(get_db)):
+def sectores(linea_id: int = Query(..., ge=1), db: Session = Depends(get_db)):
     return [
         schemas.SectorRead(id=r.id, codigo_sector=r.codigo_sector, nombre_sector=r.nombre_sector)
-        for r in llenado_service.listar_sectores(db, programa_id)
+        for r in llenado_service.listar_sectores(db, linea_id)
+    ]
+
+@router.get("/programas", response_model=List[schemas.ProgramaRead])
+def programas(sector_id: int = Query(..., ge=1), db: Session = Depends(get_db)):
+    return [
+        schemas.ProgramaRead(id=r.id, codigo_programa=r.codigo_programa, nombre_programa=r.nombre_programa)
+        for r in llenado_service.listar_programas(db, sector_id)
     ]
 
 @router.get("/metas", response_model=List[schemas.MetaRead])
-def metas(sector_id: int = Query(..., ge=1), db: Session = Depends(get_db)):
+def metas(programa_id: int = Query(..., ge=1), db: Session = Depends(get_db)):
     return [
         schemas.MetaRead(id=r.id, numero_meta=r.numero_meta, nombre_meta=r.nombre_meta)
-        for r in llenado_service.listar_metas(db, sector_id)
+        for r in llenado_service.listar_metas(db, programa_id)
     ]
 
 @router.get("/dependencias")

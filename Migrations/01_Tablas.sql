@@ -10,8 +10,8 @@ DROP TABLE variable;
 DROP TABLE metas;
 DROP TABLE meta;
 DROP TABLE formulario;
-DROP TABLE sector;
 DROP TABLE programa;
+DROP TABLE sector;
 DROP TABLE linea_estrategica;
 DROP TABLE dependencia;
 
@@ -27,20 +27,20 @@ CREATE TABLE linea_estrategica (
     nombre_linea_estrategica TEXT NOT NULL
 );
 
--- Tabla: programa
-CREATE TABLE programa (
-    id SERIAL PRIMARY KEY,
-    id_linea_estrategica INT NOT NULL REFERENCES linea_estrategica,
-    codigo_programa INT NOT NULL,
-    nombre_programa TEXT NOT NULL
-);
-
 -- Tabla: sector
 CREATE TABLE sector (
     id SERIAL PRIMARY KEY,
-    id_programa INT NOT NULL REFERENCES programa,
+    id_linea_estrategica INT NOT NULL REFERENCES linea_estrategica,
     codigo_sector INT NOT NULL,
     nombre_sector TEXT NOT NULL
+);
+
+-- Tabla: programa
+CREATE TABLE programa (
+    id SERIAL PRIMARY KEY,
+    id_sector INT NOT NULL REFERENCES sector,
+    codigo_programa INT NOT NULL,
+    nombre_programa TEXT NOT NULL
 );
 
 -- Tabla: formulario
@@ -57,7 +57,7 @@ CREATE TABLE formulario (
 -- Tabla: meta
 CREATE TABLE meta (
     id SERIAL PRIMARY KEY,
-    id_sector INT NOT NULL REFERENCES sector,
+    id_programa INT NOT NULL REFERENCES programa,
     numero_meta INT NOT NULL,
     nombre_meta TEXT NOT NULL
 );

@@ -17,26 +17,26 @@ from Backend import schemas
 def listar_lineas(db: Session) -> List[LineaEstrategica]:
     return db.query(LineaEstrategica).order_by(LineaEstrategica.nombre_linea_estrategica).all()
 
-def listar_programas(db: Session, linea_id: int) -> List[Programa]:
-    return (
-        db.query(Programa)
-        .filter(Programa.id_linea_estrategica == linea_id)
-        .order_by(Programa.nombre_programa)
-        .all()
-    )
-
-def listar_sectores(db: Session, programa_id: int) -> List[Sector]:
+def listar_sectores(db: Session, linea_id: int) -> List[Sector]:
     return (
         db.query(Sector)
-        .filter(Sector.id_programa == programa_id)
+        .filter(Sector.id_linea_estrategica == linea_id)
         .order_by(Sector.nombre_sector)
         .all()
     )
 
-def listar_metas(db: Session, sector_id: int) -> List[Meta]:
+def listar_programas(db: Session, sector_id: int) -> List[Programa]:
+    return (
+        db.query(Programa)
+        .filter(Programa.id_sector == sector_id)
+        .order_by(Programa.nombre_programa)
+        .all()
+    )
+
+def listar_metas(db: Session, programa_id: int) -> List[Meta]:
     return (
         db.query(Meta)
-        .filter(Meta.id_sector == sector_id)
+        .filter(Meta.id_programa == programa_id)
         .order_by(Meta.numero_meta)
         .all()
     )
