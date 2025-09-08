@@ -1,4 +1,5 @@
 -- DROP ALL
+DROP TABLE estructura_financiera;
 DROP TABLE subcategorias;
 DROP TABLE subcategoria;
 DROP TABLE categorias;
@@ -122,4 +123,13 @@ CREATE TABLE subcategorias (
     id SERIAL PRIMARY KEY,
     id_subcategoria INT NOT NULL REFERENCES subcategoria,
     id_formulario INT NOT NULL REFERENCES formulario
+);
+
+-- Tabla: estructura_financiera
+CREATE TABLE estructura_financiera (
+    id SERIAL PRIMARY KEY,
+    id_formulario INT NOT NULL REFERENCES formulario,
+    anio INT,
+    entidad TEXT NOT NULL,
+    valor NUMERIC(18,2)
 );
