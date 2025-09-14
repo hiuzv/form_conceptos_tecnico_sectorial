@@ -93,7 +93,7 @@ def _find_value_anchor_col_for_row(ws: Worksheet, row: int, label_col: Optional[
     for mr in candidates:
         if label_col is None or not (mr.min_col <= label_col <= mr.max_col):
             return mr.min_col
-    return 3  # 'C'
+    return 3 
 
 
 # ---------- Utilidades: mover rango grande (simular “Insert Copied Cells”) ----------
@@ -180,22 +180,47 @@ def fill_from_template(
     _write(ws, "C10", data.get("nombre_linea_estrategica", ""))
 
     # ---------------------------
-    # 2) Variables (H26..H34) con offset si hubo metas extra
+    # 2) Variables SECTORIALES
     # ---------------------------
-    variables = data.get("variables", [])
+    variables_sec = data.get("variables_sectorial", None)
+    if variables_sec is None:
+        variables_sec = data.get("variables", [])
+
     for i, base_row in enumerate(range(26, 35)):
         cell = f"H{base_row + shift}"
-        if i < len(variables):
-            v = variables[i]
-            if isinstance(v, bool):
-                _write(ws, cell, "Sí" if v else "No")
-            else:
-                _write(ws, cell, "Sí" if (str(v).strip() != "") else "No")
-        else:
-            _write(ws, cell, "No")
+        v = variables_sec[i] if i < len(variables_sec) else False
+        _write(ws, cell, "Sí" if bool(v) else "No")
 
     # ---------------------------
-    # 3) Políticas / Categorías / Subcategorías / Valor destinado (con offset)
+    # 2.1) Variables TÉCNICAS
+    # ---------------------------
+    import unicodedata
+
+    def _norm(s: str) -> str:
+        return "".join(c for c in unicodedata.normalize("NFKD", s) if not unicodedata.combining(c)).lower()
+
+    def _get_sheet_fuzzy(wb, target_name: str):
+        try:
+            return wb[target_name]
+        except KeyError:
+            pass
+        tnorm = _norm(target_name)
+        for name in wb.sheetnames:
+            if _norm(name) == tnorm or tnorm in _norm(name):
+                return wb[name]
+        raise KeyError(f"No se encontró la hoja '{target_name}'")
+
+    ws_tecnico = _get_sheet_fuzzy(wb, "Concepto Técnico General")
+    variables_tec = data.get("variables_tecnico", [])
+
+    for i, base_row in enumerate(range(25, 38)):  # 25..37
+        cell = f"H{base_row}"
+        v = variables_tec[i] if i < len(variables_tec) else False
+        _write(ws_tecnico, cell, "Sí" if bool(v) else "No")
+
+
+    # ---------------------------
+    # 3) Políticas / Categorías / Subcategorías / Valor destinado 
     # ---------------------------
     def _pair(lst, default=""):
         a = lst[0] if len(lst) >= 1 else default
@@ -220,7 +245,7 @@ def fill_from_template(
     _write(ws, f"E{41 + shift}", v1 if v1 is not None else "")
     _write(ws, f"G{41 + shift}", v2 if v2 is not None else "")
 
-        # ---------------------------
+    # ---------------------------
     # 4.5) Estructura financiera (resuelve casillas aquí)
     # ---------------------------
     ef_rows = data.get("estructura_financiera", [])
@@ -249,34 +274,77 @@ def fill_from_template(
                 dest = f"{col}{base_row + shift}"
                 val = lookup.get((y, ent), Decimal("0"))
                 _write(ws, dest, val)
+    
+    # === Duplicar Estructura Financiera en hoja "Concepto Técnico General" (sin shift) ===
+    if ef_rows:
+        ENT_ORDER = ["DEPARTAMENTO", "MUNICIPIO", "NACION", "OTRO"]
+        row_by_ent = {"DEPARTAMENTO": 17, "MUNICIPIO": 18, "NACION": 19, "OTRO": 20}
+        col_by_idx = {0: "C", 1: "E", 2: "F", 3: "G"}
+
+        from decimal import Decimal
+        for yi, y in enumerate(years):
+            for ent in ENT_ORDER:
+                base_row = row_by_ent[ent]
+                col = col_by_idx[yi]
+                dest = f"{col}{base_row}"
+                val = lookup.get((y, ent), Decimal("0"))
+                _write(ws_tecnico, dest, val)
 
     # ---------------------------
-    # 4) Llenar las METAS en sus casillas correspondientes (¡nuevo!)
+    # 4) Llenar las METAS
     # ---------------------------
-    # Detectar en el bloque base dónde van los valores (resistente a merges)
     lbl_num = _find_label_anchor(ws, 12, "NÚMERO DE META")
     lbl_nom = _find_label_anchor(ws, 13, "META DE CUATRIENIO")
-    lbl_num_col = lbl_num[1] if lbl_num else 2  # fallback: columna B
+    lbl_num_col = lbl_num[1] if lbl_num else 2 
     lbl_nom_col = lbl_nom[1] if lbl_nom else 2
 
-    num_val_col = _find_value_anchor_col_for_row(ws, 12, lbl_num_col)  # típica C
+    num_val_col = _find_value_anchor_col_for_row(ws, 12, lbl_num_col)
     nom_val_col = _find_value_anchor_col_for_row(ws, 13, lbl_nom_col)
 
-    # Escribir valores meta a meta
     total = total_metas
     for i in range(1, total + 1):
-        dst_start = 12 + (i - 1) * 3  # 12, 15, 18, ...
-        # Número de meta (fila superior del bloque)
+        dst_start = 12 + (i - 1) * 3
         if i - 1 < len(numero_meta):
             _write(ws, f"{get_column_letter(num_val_col)}{dst_start}", numero_meta[i - 1])
         else:
             _write(ws, f"{get_column_letter(num_val_col)}{dst_start}", "")
-
-        # Nombre de meta (META DE CUATRIENIO) (fila +1)
         if i - 1 < len(nombre_meta):
             _write(ws, f"{get_column_letter(nom_val_col)}{dst_start + 1}", nombre_meta[i - 1])
         else:
             _write(ws, f"{get_column_letter(nom_val_col)}{dst_start + 1}", "")
+
+    # ---------------------------
+    # 4.5) Llenar las METAS Concepto Tecnico General
+    # ---------------------------
+    if total_metas > 1:
+        extra2 = total_metas - 1
+        _move_down_from_row(ws_tecnico, start_row=14, row_off=extra2 * 3)
+        merges_base_tecnico = _get_block_merges(ws_tecnico, 11, 13)
+        for i in range(2, total_metas + 1):
+            dst_start2 = 11 + (i - 1) * 3
+            _clone_block_styles_merges(ws_tecnico, 11, 13, dst_start2, merges_cache=merges_base_tecnico)
+            lbl_num2 = _find_label_anchor(ws_tecnico, 11, "NÚMERO DE META")
+            lbl_nom2 = _find_label_anchor(ws_tecnico, 12, "META DE CUATRIENIO")
+            if lbl_num2:
+                _write(ws_tecnico, f"{get_column_letter(lbl_num2[1])}{dst_start2}", "NÚMERO DE META")
+            if lbl_nom2:
+                _write(ws_tecnico, f"{get_column_letter(lbl_nom2[1])}{dst_start2+1}", "META DE CUATRIENIO")
+
+    lbl_num2 = _find_label_anchor(ws_tecnico, 11, "NÚMERO DE META")
+    lbl_nom2 = _find_label_anchor(ws_tecnico, 12, "META DE CUATRIENIO")
+    lbl_num2_col = lbl_num2[1] if lbl_num2 else 2
+    lbl_nom2_col = lbl_nom2[1] if lbl_nom2 else 2
+    num_val2_col = _find_value_anchor_col_for_row(ws_tecnico, 11, lbl_num2_col)
+    nom_val2_col = _find_value_anchor_col_for_row(ws_tecnico, 12, lbl_nom2_col)
+
+    for i in range(1, total_metas + 1):
+        dst_start2 = 11 + (i - 1) * 3
+        _write(ws_tecnico, f"{get_column_letter(num_val2_col)}{dst_start2}",
+               numero_meta[i - 1] if i - 1 < len(numero_meta) else "")
+        _write(ws_tecnico, f"{get_column_letter(nom_val2_col)}{dst_start2 + 1}",
+               nombre_meta[i - 1] if i - 1 < len(nombre_meta) else "")
+
+
 
     # ---------------------------
     # 5) Guardar

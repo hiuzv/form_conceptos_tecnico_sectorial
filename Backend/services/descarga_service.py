@@ -72,23 +72,31 @@ def _armar_data_para_template(db: Session, form_id: int) -> dict:
     # Variables
     ids_sec = [v.id for v in db.query(VariableSectorial).order_by(VariableSectorial.id).all()]
     ids_tec = [v.id for v in db.query(VariableTecnico).order_by(VariableTecnico.id).all()]
-    todas_vars_ids = (ids_sec + ids_tec)[:9]
 
-    sel_sec = {
-        r.id_variable_sectorial
-        for r in db.query(VariablesSectorialRel).filter(VariablesSectorialRel.id_formulario == form_id).all()
+    sel_sec_ids = {
+    r.id_variable_sectorial
+    for r in db.query(VariablesSectorialRel)
+               .filter(VariablesSectorialRel.id_formulario == form_id).all()
     }
-    sel_tec = {
+    sel_tec_ids = {
         r.id_variable_tecnico
-        for r in db.query(VariablesTecnicoRel).filter(VariablesTecnicoRel.id_formulario == form_id).all()
+        for r in db.query(VariablesTecnicoRel)
+                .filter(VariablesTecnicoRel.id_formulario == form_id).all()
     }
+    flags_sec = [(vid in sel_sec_ids) for vid in ids_sec]
+    flags_tec = [(vid in sel_tec_ids) for vid in ids_tec]
 
-    variables_flags: List[bool] = [(vid in sel_sec) or (vid in sel_tec) for vid in todas_vars_ids]
-    while len(variables_flags) < 9:
-        variables_flags.append(False)
+    def pad_or_clip(lst, size):
+        return (lst + [False] * (size - len(lst)))[:size] if len(lst) < size else lst[:size]
 
+    flags_sec = pad_or_clip(flags_sec, 9)
+    flags_tec = pad_or_clip(flags_tec, 13)
 
-    # Políticas con valor destinado
+    data["variables_sectorial"] = flags_sec
+    data["variables_tecnico"] = flags_tec
+    data["variables"] = flags_sec
+
+    # Políticas
     politicas = (
         db.query(Politica.nombre_politica, PoliticasRel.valor_destinado)
         .join(PoliticasRel, PoliticasRel.id_politica == Politica.id)
@@ -133,7 +141,8 @@ def _armar_data_para_template(db: Session, form_id: int) -> dict:
         "nombre_linea_estrategica": nombre_linea,
         "numero_meta": numero_meta,
         "nombre_meta": nombre_meta,
-        "variables": variables_flags,
+        "variables_sectorial": flags_sec,
+        "variables_tecnico": flags_tec,
         "nombre_politica": nombre_politica,
         "valor_destinado": valor_destinado,
         "nombre_categoria": nombre_categoria,
