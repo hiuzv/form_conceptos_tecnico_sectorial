@@ -2,8 +2,10 @@ from sqlalchemy.orm import Session
 from typing import List, Optional, Tuple
 from Backend.models import (
     LineaEstrategica, Programa, Sector, Meta,
-    Formulario, Metas, Dependencia, Variable, Politica, Categoria, Subcategoria,
-    Variables as VariablesRel,
+    Formulario, Metas, Dependencia, Politica, Categoria, Subcategoria, EstructuraFinanciera,
+    VariableSectorial, VariableTecnico,
+    VariablesSectorial as VariablesSectorialRel,
+    VariablesTecnico as VariablesTecnicoRel,
     Politicas as PoliticasRel,
     Categorias as CategoriasRel,
     Subcategorias as SubcategoriasRel,
@@ -44,8 +46,11 @@ def listar_metas(db: Session, programa_id: int) -> List[Meta]:
 def listar_dependencias(db: Session):
     return db.query(Dependencia).order_by(Dependencia.nombre_dependencia).all()
 
-def listar_variables(db: Session):
-    return db.query(Variable).order_by(Variable.nombre_variable).all()
+def listar_variables_sectorial(db):
+    return db.query(VariableSectorial).order_by(VariableSectorial.nombre_variable).all()
+
+def listar_variables_tecnico(db):
+    return db.query(VariableTecnico).order_by(VariableTecnico.nombre_variable).all()
 
 def listar_politicas(db: Session):
     return db.query(Politica).order_by(Politica.nombre_politica).all()
@@ -104,12 +109,15 @@ def asignar_metas(db: Session, form_id: int, meta_ids: List[int]) -> None:
     db.add_all(rows)
     db.commit()
 
-def asignar_variables(db: Session, form_id: int, variable_ids: List[int]) -> None:
-    if not variable_ids:
-        return
-    rows = [VariablesRel(id_variable=v, id_formulario=form_id) for v in variable_ids]
-    db.add_all(rows)
-    db.commit()
+def asignar_variables_sectorial(db, form_id: int, variable_ids: list[int]) -> None:
+    if not variable_ids: return
+    rows = [VariablesSectorialRel(id_variable_sectorial=v, id_formulario=form_id) for v in variable_ids]
+    db.add_all(rows); db.commit()
+
+def asignar_variables_tecnico(db, form_id: int, variable_ids: list[int]) -> None:
+    if not variable_ids: return
+    rows = [VariablesTecnicoRel(id_variable_tecnico=v, id_formulario=form_id) for v in variable_ids]
+    db.add_all(rows); db.commit()
 
 def asignar_politicas(db: Session, form_id: int, politica_ids: List[int], valores: List[float] | None = None) -> None:
     if not politica_ids:
@@ -136,6 +144,32 @@ def asignar_subcategorias(db: Session, form_id: int, subcategoria_ids: List[int]
     db.add_all(rows)
     db.commit()
 
+def asignar_estructura_financiera(db: Session, form_id: int, filas) -> None:
+    db.query(EstructuraFinanciera).filter(EstructuraFinanciera.id_formulario == form_id).delete()
+    to_add = []
+    for f in filas:
+        if isinstance(f, dict):
+            anio = f.get("anio")
+            entidad = f.get("entidad")
+            valor = f.get("valor")
+        else:
+            anio = getattr(f, "anio", None)
+            entidad = getattr(f, "entidad", None)
+            valor = getattr(f, "valor", None)
+
+        to_add.append(
+            EstructuraFinanciera(
+                id_formulario=form_id,
+                anio=anio,
+                entidad=entidad,
+                valor=valor,
+            )
+        )
+
+    if to_add:
+        db.add_all(to_add)
+    db.commit()
+
 # -------------------------
 # Listar por formulario (JOIN)
 # -------------------------
@@ -149,14 +183,24 @@ def listar_metas_por_formulario(db: Session, form_id: int) -> List[Meta]:
         .all()
     )
 
-def listar_variables_por_formulario(db: Session, form_id: int):
+def listar_variables_sectorial_por_formulario(db, form_id: int):
     return (
-        db.query(Variable)
-        .join(VariablesRel, VariablesRel.id_variable == Variable.id)
-        .filter(VariablesRel.id_formulario == form_id)
-        .order_by(Variable.nombre_variable)
+        db.query(VariableSectorial)
+        .join(VariablesSectorialRel, VariablesSectorialRel.id_variable_sectorial == VariableSectorial.id)
+        .filter(VariablesSectorialRel.id_formulario == form_id)
+        .order_by(VariableSectorial.nombre_variable)
         .all()
     )
+
+def listar_variables_tecnico_por_formulario(db, form_id: int):
+    return (
+        db.query(VariableTecnico)
+        .join(VariablesTecnicoRel, VariablesTecnicoRel.id_variable_tecnico == VariableTecnico.id)
+        .filter(VariablesTecnicoRel.id_formulario == form_id)
+        .order_by(VariableTecnico.nombre_variable)
+        .all()
+    )
+
 
 def listar_politicas_por_formulario(db: Session, form_id: int):
     return (
@@ -182,5 +226,13 @@ def listar_subcategorias_por_formulario(db: Session, form_id: int):
         .join(SubcategoriasRel, SubcategoriasRel.id_subcategoria == Subcategoria.id)
         .filter(SubcategoriasRel.id_formulario == form_id)
         .order_by(Subcategoria.nombre_subcategoria)
+        .all()
+    )
+
+def listar_estructura_financiera(db: Session, form_id: int) -> List[EstructuraFinanciera]:
+    return (
+        db.query(EstructuraFinanciera)
+        .filter(EstructuraFinanciera.id_formulario == form_id)
+        .order_by(EstructuraFinanciera.anio.nullsfirst(), EstructuraFinanciera.entidad)
         .all()
     )

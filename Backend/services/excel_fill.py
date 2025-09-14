@@ -220,6 +220,36 @@ def fill_from_template(
     _write(ws, f"E{41 + shift}", v1 if v1 is not None else "")
     _write(ws, f"G{41 + shift}", v2 if v2 is not None else "")
 
+        # ---------------------------
+    # 4.5) Estructura financiera (resuelve casillas aquí)
+    # ---------------------------
+    ef_rows = data.get("estructura_financiera", [])
+    if ef_rows:
+        years = sorted({row.get("anio") for row in ef_rows if row.get("anio") is not None})[:4]
+        while len(years) < 4:
+            years.append(None)
+
+        ENT_ORDER = ["DEPARTAMENTO", "MUNICIPIO", "NACION", "OTRO"]
+        row_by_ent = {"DEPARTAMENTO": 18, "MUNICIPIO": 19, "NACION": 20, "OTRO": 21}
+        col_by_idx = {0: "C", 1: "E", 2: "F", 3: "G"}
+
+        from decimal import Decimal
+        lookup = {}
+        for r in ef_rows:
+            anio = r.get("anio")
+            ent = (r.get("entidad") or "").strip().upper()
+            valor = r.get("valor")
+            if ent in row_by_ent:
+                lookup[(anio, ent)] = valor if valor is not None else Decimal("0")
+
+        for yi, y in enumerate(years):
+            for ent in ENT_ORDER:
+                base_row = row_by_ent[ent]
+                col = col_by_idx[yi]
+                dest = f"{col}{base_row + shift}"
+                val = lookup.get((y, ent), Decimal("0"))
+                _write(ws, dest, val)
+
     # ---------------------------
     # 4) Llenar las METAS en sus casillas correspondientes (¡nuevo!)
     # ---------------------------

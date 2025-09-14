@@ -46,11 +46,18 @@ def metas(programa_id: int = Query(..., ge=1), db: Session = Depends(get_db)):
 def dependencias(db: Session = Depends(get_db)):
     return llenado_service.listar_dependencias(db)
 
-@router.get("/variables", response_model=List[schemas.VariableRead])
-def variables(db: Session = Depends(get_db)):
+@router.get("/variables_sectorial", response_model=List[schemas.VariableSectorialRead])
+def variables_sectorial(db: Session = Depends(get_db)):
     return [
-        schemas.VariableRead(id=r.id, nombre_variable=r.nombre_variable)
-        for r in llenado_service.listar_variables(db)
+        schemas.VariableSectorialRead(id=r.id, nombre_variable=r.nombre_variable)
+        for r in llenado_service.listar_variables_sectorial(db)
+    ]
+
+@router.get("/variables_tecnico", response_model=List[schemas.VariableTecnicoRead])
+def variables_tecnico(db: Session = Depends(get_db)):
+    return [
+        schemas.VariableTecnicoRead(id=r.id, nombre_variable=r.nombre_variable)
+        for r in llenado_service.listar_variables_tecnico(db)
     ]
 
 @router.get("/politicas", response_model=List[schemas.PoliticaRead])
@@ -80,21 +87,27 @@ def crear_formulario(payload: schemas.FormularioCreate, db: Session = Depends(ge
 
     if payload.metas:
         llenado_service.asignar_metas(db, form.id, payload.metas)
-    if payload.variables:
-        llenado_service.asignar_variables(db, form.id, payload.variables)
+    if payload.variables_sectorial:
+        llenado_service.asignar_variables_sectorial(db, form.id, payload.variables_sectorial)
+    if payload.variables_tecnico:
+        llenado_service.asignar_variables_tecnico(db, form.id, payload.variables_tecnico)
     if payload.politicas:
         llenado_service.asignar_politicas(db, form.id, payload.politicas, payload.valores_politicas)
     if payload.categorias:
         llenado_service.asignar_categorias(db, form.id, payload.categorias)
     if payload.subcategorias:
         llenado_service.asignar_subcategorias(db, form.id, payload.subcategorias)
+    if payload.estructura_financiera:
+        llenado_service.asignar_estructura_financiera(db, form.id, payload.estructura_financiera)
 
     form_db = llenado_service.obtener_formulario(db, form.id)
     metas_db = llenado_service.listar_metas_por_formulario(db, form.id)
-    vars_db = llenado_service.listar_variables_por_formulario(db, form.id)
+    vars_sectorial_db = llenado_service.listar_variables_sectorial_por_formulario(db, form.id)
+    vars_tecnico_db   = llenado_service.listar_variables_tecnico_por_formulario(db, form.id)
     pols_db = llenado_service.listar_politicas_por_formulario(db, form.id)
     cats_db = llenado_service.listar_categorias_por_formulario(db, form.id)
     subcats_db = llenado_service.listar_subcategorias_por_formulario(db, form.id)
+    est_fin_db = llenado_service.listar_estructura_financiera(db, form.id)
 
     return schemas.FormularioRead(
         id=form_db.id,
@@ -105,12 +118,14 @@ def crear_formulario(payload: schemas.FormularioCreate, db: Session = Depends(ge
         id_programa=form_db.id_programa,
         id_sector=form_db.id_sector,
         metas=[schemas.MetaRead(id=m.id, numero_meta=m.numero_meta, nombre_meta=m.nombre_meta) for m in metas_db],
-        variables=[schemas.VariableRead(id=v.id, nombre_variable=v.nombre_variable) for v in vars_db],
+        variables_sectorial=[schemas.VariableSectorialRead(id=v.id, nombre_variable=v.nombre_variable) for v in vars_sectorial_db],
+        variables_tecnico=[schemas.VariableTecnicoRead(id=v.id, nombre_variable=v.nombre_variable) for v in vars_tecnico_db],
         politicas = [schemas.PoliticaRead(id=p.id, nombre_politica=p.nombre_politica, valor_destinado=valor)
             for (p, valor) in pols_db
         ],
         categorias=[schemas.CategoriaRead(id=c.id, id_politica=c.id_politica, nombre_categoria=c.nombre_categoria) for c in cats_db],
         subcategorias=[schemas.SubcategoriaRead(id=s.id, id_categoria=s.id_categoria, nombre_subcategoria=s.nombre_subcategoria) for s in subcats_db],
+        estructura_financiera=[schemas.EstructuraFinancieraRow(id=e.id, anio=e.anio, entidad=e.entidad, valor=e.valor) for e in est_fin_db],
     )
 
 @router.get("/formulario/{form_id}", response_model=schemas.FormularioRead)
@@ -120,10 +135,12 @@ def obtener_formulario(form_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Formulario no encontrado")
 
     metas_db = llenado_service.listar_metas_por_formulario(db, form_id)
-    vars_db = llenado_service.listar_variables_por_formulario(db, form_id)
+    vars_sectorial_db = llenado_service.listar_variables_sectorial_por_formulario(db, form_id)
+    vars_tecnico_db = llenado_service.listar_variables_tecnico_por_formulario(db, form_id)
     pols_db = llenado_service.listar_politicas_por_formulario(db, form_id)
     cats_db = llenado_service.listar_categorias_por_formulario(db, form_id)
     subcats_db = llenado_service.listar_subcategorias_por_formulario(db, form_id)
+    est_fin_db = llenado_service.listar_estructura_financiera(db, form_id)
 
     return schemas.FormularioRead(
         id=form_db.id,
@@ -134,10 +151,12 @@ def obtener_formulario(form_id: int, db: Session = Depends(get_db)):
         id_programa=form_db.id_programa,
         id_sector=form_db.id_sector,
         metas=[schemas.MetaRead(id=m.id, numero_meta=m.numero_meta, nombre_meta=m.nombre_meta) for m in metas_db],
-        variables=[schemas.VariableRead(id=v.id, nombre_variable=v.nombre_variable) for v in vars_db],
+        variables_sectorial=[schemas.VariableSectorialRead(id=v.id, nombre_variable=v.nombre_variable) for v in vars_sectorial_db],
+        variables_tecnico=[schemas.VariableTecnicoRead(id=v.id, nombre_variable=v.nombre_variable) for v in vars_tecnico_db],
         politicas=[schemas.PoliticaRead(id=p.id, nombre_politica=p.nombre_politica, valor_destinado=valor)
             for (p, valor) in pols_db
         ],
         categorias=[schemas.CategoriaRead(id=c.id, id_politica=c.id_politica, nombre_categoria=c.nombre_categoria) for c in cats_db],
         subcategorias=[schemas.SubcategoriaRead(id=s.id, id_categoria=s.id_categoria, nombre_subcategoria=s.nombre_subcategoria) for s in subcats_db],
+        estructura_financiera=[schemas.EstructuraFinancieraRow(id=e.id, anio=e.anio, entidad=e.entidad, valor=e.valor) for e in est_fin_db],
     )

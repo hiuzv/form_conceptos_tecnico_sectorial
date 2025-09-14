@@ -6,11 +6,14 @@ from .sector import Sector
 from .meta import Meta
 from .formulario import Formulario
 from .metas import Metas
-from .variable import Variable
-from .variables import Variables
+from .variable_sectorial import VariableSectorial
+from .variables_sectorial import VariablesSectorial
+from .variable_tecnico import VariableTecnico 
+from .variables_tecnico import VariablesTecnico 
 from .politica import Politica
 from .politicas import Politicas
 from .categoria import Categoria
 from .categorias import Categorias
 from .subcategoria import Subcategoria
 from .subcategorias import Subcategorias
+from .estructura_financiera import EstructuraFinanciera

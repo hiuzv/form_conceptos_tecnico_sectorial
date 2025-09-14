@@ -1,12 +1,14 @@
+from collections import defaultdict
+from decimal import Decimal
 from io import BytesIO
 from pathlib import Path
 from typing import List, Tuple, Optional, Set
 from sqlalchemy.orm import Session
 from Backend.models import (
     Formulario, Metas, Meta, Sector, Programa, LineaEstrategica, Dependencia,
-    Variables as VariablesRel, Politicas as PoliticasRel,
-    Categorias as CategoriasRel, Subcategorias as SubcategoriasRel,
-    Variable, Politica, Categoria, Subcategoria,
+    VariableSectorial, VariableTecnico, VariablesTecnico as VariablesTecnicoRel,
+    VariablesSectorial as VariablesSectorialRel, Politicas as PoliticasRel,
+    Categorias as CategoriasRel, Subcategorias as SubcategoriasRel, EstructuraFinanciera, Politica, Categoria, Subcategoria,
 )
 from Backend.services.excel_fill import fill_from_template
 
@@ -34,6 +36,17 @@ def _armar_data_para_template(db: Session, form_id: int) -> dict:
 
     form, nombre_dependencia, nombre_linea, cod_prog, nom_prog, cod_sector, nom_sector = row
 
+    data = {
+        "nombre_proyecto": form.nombre_proyecto,
+        "cod_id_mga": form.cod_id_mga,
+        "nombre_dependencia": nombre_dependencia,
+        "codigo_sector": cod_sector,
+        "nombre_sector": nom_sector,
+        "codigo_programa": cod_prog,
+        "nombre_programa": nom_prog,
+        "nombre_linea_estrategica": nombre_linea,
+    }
+
     # Todas las metas (sin limit)
     metas = (
         db.query(Meta)
@@ -45,14 +58,35 @@ def _armar_data_para_template(db: Session, form_id: int) -> dict:
     numero_meta = [m.numero_meta for m in metas]
     nombre_meta = [m.nombre_meta for m in metas]
 
-    # Variables (9 flags)
-    todas_vars = db.query(Variable).order_by(Variable.id).limit(9).all()
-    vars_presentes: Set[int] = {
-        r.id_variable for r in db.query(VariablesRel).filter(VariablesRel.id_formulario == form_id).all()
+    # === ESTRUCTURA FINANCIERA ===
+    ef_rows = (
+        db.query(EstructuraFinanciera)
+        .filter(EstructuraFinanciera.id_formulario == form_id)
+        .all()
+    )
+    data["estructura_financiera"] = [
+        {"anio": r.anio, "entidad": (r.entidad or "").strip().upper(), "valor": r.valor}
+        for r in ef_rows
+    ]
+
+    # Variables
+    ids_sec = [v.id for v in db.query(VariableSectorial).order_by(VariableSectorial.id).all()]
+    ids_tec = [v.id for v in db.query(VariableTecnico).order_by(VariableTecnico.id).all()]
+    todas_vars_ids = (ids_sec + ids_tec)[:9]
+
+    sel_sec = {
+        r.id_variable_sectorial
+        for r in db.query(VariablesSectorialRel).filter(VariablesSectorialRel.id_formulario == form_id).all()
     }
-    variables_flags: List[bool] = [(v.id in vars_presentes) for v in todas_vars]
+    sel_tec = {
+        r.id_variable_tecnico
+        for r in db.query(VariablesTecnicoRel).filter(VariablesTecnicoRel.id_formulario == form_id).all()
+    }
+
+    variables_flags: List[bool] = [(vid in sel_sec) or (vid in sel_tec) for vid in todas_vars_ids]
     while len(variables_flags) < 9:
         variables_flags.append(False)
+
 
     # Políticas con valor destinado
     politicas = (
@@ -104,7 +138,13 @@ def _armar_data_para_template(db: Session, form_id: int) -> dict:
         "valor_destinado": valor_destinado,
         "nombre_categoria": nombre_categoria,
         "nombre_focalización": nombre_focalizacion,
+        "estructura_financiera": [
+            {"anio": r.anio, "entidad": (r.entidad or "").strip().upper(), "valor": r.valor}
+            for r in ef_rows
+        ],
     }
+
+    
     return data
 
 

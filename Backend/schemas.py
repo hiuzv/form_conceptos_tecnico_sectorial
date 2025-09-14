@@ -33,7 +33,12 @@ class MetaRead(BaseModel):
     nombre_meta: str
     class Config: from_attributes = True
 
-class VariableRead(BaseModel):
+class VariableSectorialRead(BaseModel):
+    id: int
+    nombre_variable: str
+    class Config: from_attributes = True
+
+class VariableTecnicoRead(BaseModel):
     id: int
     nombre_variable: str
     class Config: from_attributes = True
@@ -56,6 +61,26 @@ class SubcategoriaRead(BaseModel):
     nombre_subcategoria: str
     class Config: from_attributes = True
 
+class EstructuraFinancieraIn(BaseModel):
+    anio: Optional[int] = None
+    entidad: str
+    valor: ValorMoneda
+
+class EstructuraFinancieraRow(BaseModel):
+    id: int
+    anio: Optional[int] = None
+    entidad: str
+    valor: ValorMoneda
+    class Config: from_attributes = True
+
+class EstructuraFinancieraBatchIn(BaseModel):
+    form_id: int
+    filas: List[EstructuraFinancieraIn] = []
+
+class EstructuraFinancieraRead(BaseModel):
+    filas: List[EstructuraFinancieraRow] = []
+    total_proyecto: Optional[ValorMoneda] = None
+
 class FormularioCreate(BaseModel):
     nombre_proyecto: str
     cod_id_mga: int
@@ -64,7 +89,9 @@ class FormularioCreate(BaseModel):
     id_programa: int
     id_sector: int
     metas: List[int] = []
-    variables: List[int] = []
+    variables_sectorial: List[int] = []
+    variables_tecnico: List[int] = []
+    estructura_financiera: List[EstructuraFinancieraIn] = []
     politicas: List[int] = []
     valores_politicas: List[ValorMoneda] = []
     categorias: List[int] = []
@@ -79,7 +106,9 @@ class FormularioRead(BaseModel):
     id_programa: int
     id_sector: int
     metas: List[MetaRead] = []
-    variables: List[VariableRead] = []
+    variables_sectorial: List[VariableSectorialRead] = []
+    variables_tecnico: List[VariableTecnicoRead] = []
+    estructura_financiera: List[EstructuraFinancieraRow] = []
     politicas: List[PoliticaRead] = []
     categorias: List[CategoriaRead] = []
     subcategorias: List[SubcategoriaRead] = []
