@@ -540,7 +540,8 @@ INSERT INTO meta (numero_meta, nombre_meta, id_programa) VALUES
   (257, 'Pistas construidas y dotadas', 67),
   (258, 'Centro de alto rendimiento construido y dotado', 67),
   (259, 'Estadios construidos', 67);
-INSERT INTO variable (nombre_variable) VALUES
+
+INSERT INTO variable_sectorial (nombre_variable) VALUES
   ('ES COMPETENCIA DE LA DEPENDENCIA SECTORIAL PROPONENTE, LA IMPLEMENTACIÓN DEL PROYECTO'),
   ('LAS METAS  DEL PROYECTO, ESTAN CLARAMENTE DEFINIDAS Y CUANTIFICADAS Y CONTRINUYEN EFECTIVAMENTE AL LOGRO DE METAS DEL PROGRAMA DEL PLAN DEPARTAMENTAL DE DESARROLLO'),
   ('EL PROYECTO DA RESPUESTA A LAS NECESIDADES DEL SECTOR PARA EL QUE FUE FORMULADO'),
@@ -550,6 +551,21 @@ INSERT INTO variable (nombre_variable) VALUES
   ('EL PROYECTO TIENE DEFINIDA LA POBLACIÓN OBJETO DE LA INTERVENCIÓN'),
   ('LA ALTERNATIVA SELECCIONADA SOLUCIONA EFECTIVAMENTE EL PROBLEMA ENUNCIADO POR ESTA DEPENDENCIA'),
   ('LAS ACTIVIDADES PLANTEADAS SON COHERENTES CON LOS PRODUCTOS Y ESTOS CON  LOS OBJETIVOS ESPECIFICOS');
+
+INSERT INTO variable_tecnico (nombre_variable) VALUES
+  ('Proyecto formulado en la Metodología General Ajustada (MGA).'),
+  ('El lugar de intervención del proyecto no se encuentra localizado en zona que presente alto riesgo no mitigable y está acorde con las normas establecidas en el respectivo Plan de Ordenamiento Territorial (POT), Plan Básico de Ordenamiento Territorial (PBOT), o Esquema de Ordenamiento Territorial (EOT), de conformidad con lo señalado en la normativa vigente'),
+  ('La alternativa de solución seleccionada permite mitigar el problema identificado y es acorde a los objetivos del proyecto. Su ejecución se articula al sector y programa de inversión correcto'),
+  ('La intervención y alternativa de solución propuesta, es competencia del departamento del Cauca'),
+  ('Los costos de la alternativa están acordes con los precios de mercado de la región'),
+  ('Los recursos solicitados son el resultado de un costeo claro y soportado de las actividades del proyecto en cada una de sus vigencias'),
+  ('El presupuesto del proyecto tiene los análisis de precios respectivos'),
+  ('El proyecto considera los trámites, licencias y permisos necesarios de acuerdo con su naturaleza.'),
+  ('El proyecto presenta las especificaciones técnicas de las obras, servicios, equipos, documentos y/o demás entregables inmersos en el desarrollo de las actividades.'),
+  ('Los diseños, estudios, planos y/ anexos técnicos de soporte cumplen con las Normas Técnicas Colombianas (NTC) aplicables'),
+  ('El horizonte establecido para la ejecución es acorde con el alcance del proyecto   y el tiempo mínimo necesario para el desarrollo de las actividades en la calidad requerida.'),
+  ('Se ha efectuado un análisis de riesgos, acorde a la complejidad y naturaleza del proyecto'),
+  ('El proyecto es sostenible y el responsable (departamento y/o municipio o la entidad u organización que recibe y estará a cargo de los bienes) garantiza la operación y funcionamiento de los bienes entregados con ingresos de naturaleza permanente.');
 
 INSERT INTO politica (nombre_politica) VALUES
   ('Actividades de Ciencia, Tecnología e Innovación'),

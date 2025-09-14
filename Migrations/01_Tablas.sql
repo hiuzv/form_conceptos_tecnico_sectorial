@@ -6,8 +6,10 @@ DROP TABLE categorias;
 DROP TABLE categoria;
 DROP TABLE politicas;
 DROP TABLE politica;
-DROP TABLE variables;
-DROP TABLE variable;
+DROP TABLE variables_sectorial;
+DROP TABLE variable_sectorial;
+DROP TABLE variables_tecnico;
+DROP TABLE variable_tecnico;
 DROP TABLE metas;
 DROP TABLE meta;
 DROP TABLE formulario;
@@ -70,16 +72,29 @@ CREATE TABLE metas (
     id_formulario INT NOT NULL REFERENCES formulario
 );
 
--- Tabla: variable
-CREATE TABLE variable (
+-- Tabla: variable_sectorial 
+CREATE TABLE variable_sectorial (
     id SERIAL PRIMARY KEY,
     nombre_variable TEXT NOT NULL
 );
 
--- Tabla: variables
-CREATE TABLE variables (
+-- Tabla: variables_sectorial
+CREATE TABLE variables_sectorial (
     id SERIAL PRIMARY KEY,
-    id_variable INT NOT NULL REFERENCES variable,
+    id_variable_sectorial INT NOT NULL REFERENCES variable_sectorial,
+    id_formulario INT NOT NULL REFERENCES formulario
+);
+
+-- Tabla: variable_tecnico
+CREATE TABLE variable_tecnico (
+    id SERIAL PRIMARY KEY,
+    nombre_variable TEXT NOT NULL
+);
+
+-- Tabla: variables_tecnico
+CREATE TABLE variables_tecnico (
+    id SERIAL PRIMARY KEY,
+    id_variable_tecnico INT NOT NULL REFERENCES variable_tecnico,
     id_formulario INT NOT NULL REFERENCES formulario
 );
 
