@@ -313,8 +313,60 @@ def fill_from_template(
         else:
             _write(ws, f"{get_column_letter(nom_val_col)}{dst_start + 1}", "")
 
+        # ---------------------------
+    # 4.5) Estructura financiera (resuelve casillas aquí)
     # ---------------------------
-    # 4.5) Llenar las METAS Concepto Tecnico General
+    ef_rows = data.get("estructura_financiera", [])
+    if ef_rows:
+        years = sorted({row.get("anio") for row in ef_rows if row.get("anio") is not None})[:4]
+        while len(years) < 4:
+            years.append(None)
+
+        header_cols = ["C", "E", "F", "G"]
+        for yi, col in enumerate(header_cols):
+            _write(ws, f"{col}{17 + shift}", years[yi] if years[yi] is not None else "")
+
+        ENT_ORDER = ["DEPARTAMENTO", "MUNICIPIO", "NACION", "OTRO"]
+        row_by_ent = {"DEPARTAMENTO": 18, "MUNICIPIO": 19, "NACION": 20, "OTRO": 21}
+        col_by_idx = {0: "C", 1: "E", 2: "F", 3: "G"}
+
+        from decimal import Decimal
+        lookup = {}
+        for r in ef_rows:
+            anio = r.get("anio")
+            ent = (r.get("entidad") or "").strip().upper()
+            valor = r.get("valor")
+            if ent in row_by_ent:
+                lookup[(anio, ent)] = valor if valor is not None else Decimal("0")
+
+        for yi, y in enumerate(years):
+            for ent in ENT_ORDER:
+                base_row = row_by_ent[ent]
+                col = col_by_idx[yi]
+                dest = f"{col}{base_row + shift}"
+                val = lookup.get((y, ent), Decimal("0"))
+                _write(ws, dest, val)
+
+    if ef_rows:
+        header_cols = ["C", "E", "F", "G"]
+        for yi, col in enumerate(header_cols):
+            _write(ws_tecnico, f"{col}{16}", years[yi] if years[yi] is not None else "")
+
+        ENT_ORDER = ["DEPARTAMENTO", "MUNICIPIO", "NACION", "OTRO"]
+        row_by_ent = {"DEPARTAMENTO": 17, "MUNICIPIO": 18, "NACION": 19, "OTRO": 20}
+        col_by_idx = {0: "C", 1: "E", 2: "F", 3: "G"}
+
+        from decimal import Decimal
+        for yi, y in enumerate(years):
+            for ent in ENT_ORDER:
+                base_row = row_by_ent[ent]
+                col = col_by_idx[yi]
+                dest = f"{col}{base_row}"
+                val = lookup.get((y, ent), Decimal("0"))
+                _write(ws_tecnico, dest, val)
+
+    # ---------------------------
+    # 4.9) Llenar las METAS Concepto Tecnico General
     # ---------------------------
     if total_metas > 1:
         extra2 = total_metas - 1

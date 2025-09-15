@@ -1,22 +1,43 @@
 services:
   db:
     image: postgres:15
+    container_name: formulario_db
     environment:
       POSTGRES_DB: formulario
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
     ports: ["5432:5432"]
-    volumes: [dbdata:/var/lib/postgresql/data]
+    volumes:
+      - dbdata:/var/lib/postgresql/data
+      - ./Migrations:/docker-entrypoint-initdb.d:ro
 
   api:
-    build: ./backend
+    build:
+      context: .
+      dockerfile: Backend/Dockerfile
+    container_name: formulario_api
     env_file: .env
-    depends_on: [db]
+    depends_on:
+      - db
+    environment:
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_USER: postgres
+      DB_PASS: postgres
+      DB_NAME: formulario
     ports: ["8000:8000"]
+    volumes:
+      - ./3_y_4_Concepto_tecnico_y_sectorial_2025.xlsx:/app/3_y_4_Concepto_tecnico_y_sectorial_2025.xlsx:ro
+    command: ["sh","-lc","sleep 5 && uvicorn Backend.main:app --host 0.0.0.0 --port 8000"]
 
   web:
-    build: ./frontend
-    depends_on: [api]
-    ports: ["3000:3000"]
+    build:
+      context: .
+      dockerfile: Frontend/turnos-frontend/Dockerfile
+    container_name: formulario_web
+    depends_on:
+      - api
+    ports: ["5173:80"]
+
 volumes:
   dbdata:

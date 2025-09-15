@@ -1,23 +1,3 @@
--- DROP ALL
-DROP TABLE estructura_financiera;
-DROP TABLE subcategorias;
-DROP TABLE subcategoria;
-DROP TABLE categorias;
-DROP TABLE categoria;
-DROP TABLE politicas;
-DROP TABLE politica;
-DROP TABLE variables_sectorial;
-DROP TABLE variable_sectorial;
-DROP TABLE variables_tecnico;
-DROP TABLE variable_tecnico;
-DROP TABLE metas;
-DROP TABLE meta;
-DROP TABLE formulario;
-DROP TABLE programa;
-DROP TABLE sector;
-DROP TABLE linea_estrategica;
-DROP TABLE dependencia;
-
 -- Tabla: dependencia
 CREATE TABLE dependencia (
     id SERIAL PRIMARY KEY,
