@@ -1,5 +1,5 @@
 from fastapi import FastAPI
-from Backend.routes import llenado, descarga
+from Backend.routes import descarga, proyecto
 from Backend.utils.config import settings
 from Backend.utils.database import engine, Base
 from fastapi.middleware.cors import CORSMiddleware
@@ -26,7 +26,7 @@ origins = [
     "http://127.0.0.1:5173",
 ]
 
-app.include_router(llenado.router)
+app.include_router(proyecto.router)
 app.include_router(descarga.router)
 
 @app.get("/")

@@ -1,4 +1,5 @@
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 from typing import List, Optional, Tuple
 from Backend.models import (
     LineaEstrategica, Programa, Sector, Meta,
@@ -79,9 +80,10 @@ def crear_formulario(db: Session, data: schemas.FormularioCreate) -> Formulario:
         id_linea_estrategica=data.id_linea_estrategica,
         id_programa=data.id_programa,
         id_sector=data.id_sector,
+        nombre_secretario=data.nombre_secretario,
     )
     db.add(form)
-    db.flush()   # obtenemos form.id
+    db.flush()
     db.commit()
     db.refresh(form)
     return form
@@ -236,3 +238,86 @@ def listar_estructura_financiera(db: Session, form_id: int) -> List[EstructuraFi
         .order_by(EstructuraFinanciera.anio.nullsfirst(), EstructuraFinanciera.entidad)
         .all()
     )
+
+def listar_proyectos(db: Session) -> List[Formulario]:
+    return (
+        db.query(Formulario)
+        .order_by(Formulario.id.desc())
+        .all()
+    )
+
+def update_formulario_basicos(db: Session, form_id: int, data: schemas.FormularioUpsertBasicos) -> Formulario:
+    form = db.get(Formulario, form_id)
+    if not form:
+        raise ValueError("Formulario no encontrado")
+    for field, value in data.model_dump(exclude_unset=True).items():
+        setattr(form, field, value)
+    db.commit()
+    db.refresh(form)
+    return form
+
+def replace_metas(db: Session, form_id: int, meta_ids: List[int]) -> None:
+    db.query(Metas).filter(Metas.id_formulario == form_id).delete()
+    asignar_metas(db, form_id, meta_ids or [])
+
+def replace_variables_sectorial(db: Session, form_id: int, variable_ids: List[int]) -> None:
+    db.query(VariablesSectorialRel).filter(VariablesSectorialRel.id_formulario == form_id).delete()
+    asignar_variables_sectorial(db, form_id, variable_ids or [])
+
+def replace_variables_tecnico(db: Session, form_id: int, variable_ids: List[int]) -> None:
+    db.query(VariablesTecnicoRel).filter(VariablesTecnicoRel.id_formulario == form_id).delete()
+    asignar_variables_tecnico(db, form_id, variable_ids or [])
+
+def replace_politicas(db: Session, form_id: int, politica_ids: List[int], valores: List[float] | None = None) -> None:
+    db.query(PoliticasRel).filter(PoliticasRel.id_formulario == form_id).delete()
+    asignar_politicas(db, form_id, politica_ids or [], valores or [])
+
+def replace_categorias(db: Session, form_id: int, categoria_ids: List[int]) -> None:
+    db.query(CategoriasRel).filter(CategoriasRel.id_formulario == form_id).delete()
+    asignar_categorias(db, form_id, categoria_ids or [])
+
+def replace_subcategorias(db: Session, form_id: int, subcategoria_ids: List[int]) -> None:
+    db.query(SubcategoriasRel).filter(SubcategoriasRel.id_formulario == form_id).delete()
+    asignar_subcategorias(db, form_id, subcategoria_ids or [])
+
+def listar_proyectos_pag(db: Session, nombre: Optional[str], cod_id_mga: Optional[int], id_dependencia: Optional[int],
+                         page:int, page_size:int) -> tuple[list[Formulario], int]:
+    q = db.query(Formulario)
+    if nombre:
+        q = q.filter(func.unaccent(func.lower(Formulario.nombre_proyecto)).like(f"%{nombre.lower()}%"))
+    if cod_id_mga is not None:
+        q = q.filter(Formulario.cod_id_mga == cod_id_mga)
+    if id_dependencia is not None:
+        q = q.filter(Formulario.id_dependencia == id_dependencia)
+    total = q.count()
+    rows = q.order_by(Formulario.id.desc()).offset((page-1)*page_size).limit(page_size).all()
+    return rows, total
+
+def crear_formulario_minimo(db: Session, data: schemas.FormularioCreateMinimo) -> Formulario:
+    existing = (
+        db.query(Formulario)
+        .filter(
+            Formulario.cod_id_mga == data.cod_id_mga,
+            Formulario.id_dependencia == data.id_dependencia,
+        )
+        .order_by(Formulario.id.desc())
+        .first()
+    )
+    if existing:
+        if data.nombre_proyecto and data.nombre_proyecto.strip() and data.nombre_proyecto.strip() != (existing.nombre_proyecto or "").strip():
+            existing.nombre_proyecto = data.nombre_proyecto.strip()
+            db.commit()
+            db.refresh(existing)
+        return existing
+
+    form = Formulario(
+        nombre_proyecto=data.nombre_proyecto,
+        cod_id_mga=data.cod_id_mga,
+        id_dependencia=data.id_dependencia,
+    )
+    db.add(form)
+    db.flush()
+    db.commit()
+    db.refresh(form)
+    return form
+

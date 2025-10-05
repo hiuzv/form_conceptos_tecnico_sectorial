@@ -88,6 +88,7 @@ class FormularioCreate(BaseModel):
     id_linea_estrategica: int
     id_programa: int
     id_sector: int
+    nombre_secretario: str
     metas: List[int] = []
     variables_sectorial: List[int] = []
     variables_tecnico: List[int] = []
@@ -105,6 +106,7 @@ class FormularioRead(BaseModel):
     id_linea_estrategica: int
     id_programa: int
     id_sector: int
+    nombre_secretario: str 
     metas: List[MetaRead] = []
     variables_sectorial: List[VariableSectorialRead] = []
     variables_tecnico: List[VariableTecnicoRead] = []
@@ -113,3 +115,38 @@ class FormularioRead(BaseModel):
     categorias: List[CategoriaRead] = []
     subcategorias: List[SubcategoriaRead] = []
     class Config: from_attributes = True
+    
+class ProyectoListRead(BaseModel):
+    nombre: str
+    cod_id_mga: int
+    id_dependencia: int
+
+class FormularioUpsertBasicos(BaseModel):
+    nombre_proyecto: Optional[str] = None
+    cod_id_mga: Optional[int] = None
+    id_dependencia: Optional[int] = None
+    id_linea_estrategica: Optional[int] = None
+    id_programa: Optional[int] = None
+    id_sector: Optional[int] = None
+    nombre_secretario: Optional[str] = None
+
+class IdsIn(BaseModel):
+    ids: List[int] = []
+
+class PoliticasUpsertIn(BaseModel):
+    politicas: List[int] = []
+    valores_politicas: List[ValorMoneda] = []
+
+class ProyectoListItem(BaseModel):
+    id: int
+    nombre: str
+    cod_id_mga: int
+    id_dependencia: int
+
+class FormularioCreateMinimo(BaseModel):
+    nombre_proyecto: str
+    cod_id_mga: int
+    id_dependencia: int
+
+class FormularioId(BaseModel):
+    id: int
