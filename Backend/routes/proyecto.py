@@ -224,7 +224,7 @@ def upsert_subcats(form_id:int, body: schemas.IdsIn, db: Session = Depends(get_d
 @router.get("/lista")
 def listar_proyectos_api(
     nombre: str | None = None,
-    cod_id_mga: int | None = Query(None),
+    cod_id_mga: str | None = Query(None),
     id_dependencia: int | None = Query(None),
     page: int = Query(1, ge=1),
     page_size: int = Query(10, ge=1, le=100),

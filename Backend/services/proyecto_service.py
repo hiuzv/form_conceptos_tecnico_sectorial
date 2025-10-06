@@ -1,5 +1,5 @@
 from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy import func, cast, String
 from typing import List, Optional, Tuple
 from Backend.models import (
     LineaEstrategica, Programa, Sector, Meta,
@@ -15,10 +15,13 @@ from Backend.models import (
 )
 from Backend import schemas
 
+_ACCENTS = "ÁÉÍÓÚáéíóúÑñ"
+_ASCII   = "AEIOUaeiouNn"
+_TRANS   = str.maketrans(_ACCENTS, _ASCII)
+
 # -------------------------
 # Catálogos / Listados base
 # -------------------------
-
 def listar_lineas(db: Session) -> List[LineaEstrategica]:
     return db.query(LineaEstrategica).order_by(LineaEstrategica.nombre_linea_estrategica).all()
 
@@ -282,13 +285,15 @@ def replace_subcategorias(db: Session, form_id: int, subcategoria_ids: List[int]
     db.query(SubcategoriasRel).filter(SubcategoriasRel.id_formulario == form_id).delete()
     asignar_subcategorias(db, form_id, subcategoria_ids or [])
 
-def listar_proyectos_pag(db: Session, nombre: Optional[str], cod_id_mga: Optional[int], id_dependencia: Optional[int],
+def listar_proyectos_pag(db: Session, nombre: Optional[str], cod_id_mga: Optional[str], id_dependencia: Optional[int],
                          page:int, page_size:int) -> tuple[list[Formulario], int]:
     q = db.query(Formulario)
     if nombre:
-        q = q.filter(func.unaccent(func.lower(Formulario.nombre_proyecto)).like(f"%{nombre.lower()}%"))
+        q = q.filter(_ilike_no_accents(Formulario.nombre_proyecto, nombre))
     if cod_id_mga is not None:
-        q = q.filter(Formulario.cod_id_mga == cod_id_mga)
+        cod_txt = "".join(ch for ch in cod_id_mga if ch.isdigit())
+        if cod_txt:
+            q = q.filter(cast(Formulario.cod_id_mga, String).like(f"%{cod_txt}%"))
     if id_dependencia is not None:
         q = q.filter(Formulario.id_dependencia == id_dependencia)
     total = q.count()
@@ -370,3 +375,8 @@ def replace_funcionarios_viabilidad(db: Session, form_id: int, filas: List[dict]
     if to_add:
         db.add_all(to_add)
     db.commit()
+
+def _ilike_no_accents(column, term: str):
+    term_norm = (term or "").translate(_TRANS).lower()
+    col_norm  = func.lower(func.translate(column, _ACCENTS, _ASCII))
+    return col_norm.like(f"%{term_norm}%")

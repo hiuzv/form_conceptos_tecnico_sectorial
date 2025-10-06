@@ -135,7 +135,7 @@ export default function App() {
   const [tiposViabilidad, setTiposViabilidad] = useState<Opcion[]>([]);
   const [viabilidadesSel, setViabilidadesSel] = useState<ID[]>([]);
   const [funcionariosViab, setFuncionariosViab] = useState<Record<number, {nombre:string; cargo:string}>>({});
-
+  const firstFiltersRun = React.useRef(true);
 
   const queryLista = async (resetPage=false) => {
     try {
@@ -169,7 +169,6 @@ export default function App() {
   })(); }, []);
   useEffect(() => { queryLista(true); }, []);
 
-  // 👉 Nuevo: calcular última página y control de botones
   const lastPage = useMemo(
     () => (total != null ? Math.max(1, Math.ceil(total / pageSize)) : null),
     [total, pageSize]
@@ -177,11 +176,29 @@ export default function App() {
   const canPrev = page > 1;
   const canNext = lastPage != null ? page < lastPage : (lista.length === pageSize && lista.length > 0);
 
-  // 👉 Nuevo: al cambiar page/pageSize, recargar lista SIN setTimeout
   useEffect(() => {
     if (vista !== "lista") return;
-    queryLista(false);
-  }, [page, pageSize, vista]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (firstFiltersRun.current) {
+      firstFiltersRun.current = false;
+      return;
+    }
+    const t = setTimeout(() => {
+      queryLista(true);
+    }, 400);
+    return () => clearTimeout(t);
+  }, [vista, fNombre, fCodMga, fDependencia]);
+
+  React.useEffect(() => {
+    if (firstFiltersRun.current) {
+      firstFiltersRun.current = false;
+      return;
+    }
+    const t = setTimeout(() => {
+      queryLista(true);
+    }, 400);
+
+    return () => clearTimeout(t);
+  }, [fNombre, fCodMga, fDependencia]);
 
   // FORM
   const [lineas, setLineas] = useState<Opcion[]>([]);
@@ -628,6 +645,8 @@ export default function App() {
       anio_inicio: undefined,
       estructura_financiera_ui: {},
     });
+    setViabilidadesSel([]);
+    setFuncionariosViab({});
     setStep(1);
   };
 
@@ -645,36 +664,31 @@ export default function App() {
 
           {/* Filtros */}
           <Card className="shadow-sm">
-            <CardContent className="p-4 grid grid-cols-1 md:grid-cols-4 gap-3">
+            <CardContent className="p-4 grid grid-cols-1 md:grid-cols-3 gap-3">
               <div>
                 <Label>Nombre</Label>
-                <Input value={fNombre} onChange={(e)=> setFNombre(e.target.value)} placeholder="Buscar por nombre…" />
+                <Input
+                  value={fNombre}
+                  onChange={(e) => setFNombre(e.target.value)}
+                  placeholder="Buscar por nombre…"
+                />
               </div>
               <div>
                 <Label>Código ID MGA</Label>
-                <Input value={fCodMga} onChange={(e)=> setFCodMga(e.target.value)} placeholder="Ej. 12345" />
+                <Input
+                  value={fCodMga}
+                  onChange={(e) => setFCodMga(e.target.value)}
+                  placeholder="Ej. 12345"
+                />
               </div>
               <div>
                 <Label>Dependencia</Label>
-                <SelectNative opciones={deps} value={fDependencia} onChange={setFDependencia} placeholder="Todas" />
-              </div>
-              <div className="flex items-end gap-2">
-                {/* 👉 Ahora solo resetea a página 1; el useEffect hace el fetch */}
-                <Button className="gap-2" onClick={()=> setPage(1)}>
-                  <Search className="h-4 w-4"/> Filtrar
-                </Button>
-                <Button
-                  variant="outline"
-                  className="gap-2"
-                  onClick={()=>{
-                    setFNombre("");
-                    setFCodMga("");
-                    setFDependencia(null);
-                    setPage(1);
-                  }}
-                >
-                  <RefreshCcw className="h-4 w-4"/> Limpiar
-                </Button>
+                <SelectNative
+                  opciones={deps}
+                  value={fDependencia}
+                  onChange={setFDependencia}
+                  placeholder="Todas"
+                />
               </div>
             </CardContent>
           </Card>
@@ -795,7 +809,7 @@ export default function App() {
             [4, "Variables analizadas"],
             [5, "Políticas"],
             [6, "Viabilidad"],
-            [7, "Revisión"],
+            [7, "Descargas"],
           ].map(([idx, label]) => (
             <button
               key={idx as number}
@@ -1291,7 +1305,7 @@ function DownloadList({ formId, baseUrl }: { formId: number | string; baseUrl: s
     },
     {
       id: "concepto",
-      title: "3. Concepto técnico general y concepto sectorial PDD 2024-2027",
+      title: "3. Concepto técnico general y concepto sectorial",
       endpoint: `/descarga/excel/concepto-tecnico-sectorial/${formId}`,
       filename: "3_y_4_Concepto_tecnico_y_sectorial_2025.xlsx",
       kind: "excel",

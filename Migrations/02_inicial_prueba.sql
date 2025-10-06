@@ -1,3 +1,15 @@
+INSERT INTO personas (nombre, rol) VALUES
+  ('Jorge Octavio Guzmán Gutiérrez', 'Gobernador'),
+  ('Diana Melissa Muriel Muñoz','Jefe OAP');
+
+INSERT INTO periodo_lema (inicio_periodo, fin_periodo, lema) VALUES
+  (2024, 2027, 'La fuerza del pueblo');
+
+INSERT INTO tipo_viabilidad (nombre) VALUES
+  ('Técnica'),
+  ('Jurídica'),
+  ('Financiera');
+
 INSERT INTO dependencia (nombre_dependencia) VALUES
   ('Oficina Asesora de Gestión del Riesgo'),
   ('Oficina Asesora de Planeación'),

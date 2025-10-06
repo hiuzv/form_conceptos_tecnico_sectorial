@@ -1,3 +1,29 @@
+-- DROP ALL
+DROP TABLE periodo_lema;
+DROP TABLE funcionario_viabilidad;
+DROP TABLE tipo_viabilidad;
+DROP TABLE viabilidades;
+DROP TABLE viabilidad;
+DROP TABLE personas;
+DROP TABLE estructura_financiera;
+DROP TABLE subcategorias;
+DROP TABLE subcategoria;
+DROP TABLE categorias;
+DROP TABLE categoria;
+DROP TABLE politicas;
+DROP TABLE politica;
+DROP TABLE variables_sectorial;
+DROP TABLE variable_sectorial;
+DROP TABLE variables_tecnico;
+DROP TABLE variable_tecnico;
+DROP TABLE metas;
+DROP TABLE meta;
+DROP TABLE formulario;
+DROP TABLE programa;
+DROP TABLE sector;
+DROP TABLE linea_estrategica;
+DROP TABLE dependencia;
+
 -- Tabla: dependencia
 CREATE TABLE dependencia (
     id SERIAL PRIMARY KEY,
@@ -32,9 +58,13 @@ CREATE TABLE formulario (
     nombre_proyecto TEXT NOT NULL,
     cod_id_mga INT NOT NULL,
     id_dependencia INT NOT NULL REFERENCES dependencia,
-    id_linea_estrategica INT NOT NULL REFERENCES linea_estrategica,
-    id_programa INT NOT NULL REFERENCES programa,
-    id_sector INT NOT NULL REFERENCES sector
+    id_linea_estrategica INT REFERENCES linea_estrategica,
+    id_programa INT REFERENCES programa,
+    id_sector INT REFERENCES sector,
+    nombre_secretario TEXT,
+    oficina_secretario TEXT,
+    duracion_proyecto INT,
+    cantidad_beneficiarios INT
 );
 
 -- Tabla: meta
@@ -127,4 +157,47 @@ CREATE TABLE estructura_financiera (
     anio INT,
     entidad TEXT NOT NULL,
     valor NUMERIC(18,2)
+);
+
+-- Tabla: personas
+CREATE TABLE personas (
+    id SERIAL PRIMARY KEY,
+    nombre TEXT NOT NULL,
+    rol TEXT NOT NULL
+);
+
+-- Tabla: viabilidad
+CREATE TABLE viabilidad (
+    id SERIAL PRIMARY KEY,
+    nombre TEXT NOT NULL
+);
+
+-- Tabla: viabilidades
+CREATE TABLE viabilidades (
+    id SERIAL PRIMARY KEY,
+    id_viabilidad INT NOT NULL REFERENCES viabilidad,
+    id_formulario INT NOT NULL REFERENCES formulario
+);
+
+-- Tabla: tipo_viabilidad
+CREATE TABLE tipo_viabilidad (
+    id SERIAL PRIMARY KEY,
+    nombre TEXT NOT NULL
+);
+
+-- Tabla: funcionario_viabilidad
+CREATE TABLE funcionario_viabilidad (
+    id SERIAL PRIMARY KEY,
+    nombre TEXT NOT NULL,
+    cargo TEXT NOT NULL,
+    id_tipo_viabilidad INT NOT NULL REFERENCES tipo_viabilidad,
+    id_formulario INT NOT NULL REFERENCES formulario
+);
+
+-- Tabla: periodo_lema
+CREATE TABLE periodo_lema (
+    id SERIAL PRIMARY KEY,
+    inicio_periodo INT NOT NULL,
+    fin_periodo INT NOT NULL,
+    lema TEXT NOT NULL
 );

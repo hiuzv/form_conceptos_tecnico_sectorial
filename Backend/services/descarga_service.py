@@ -16,7 +16,7 @@ from Backend.models import (
     Politicas as PoliticasRel,
     Categorias as CategoriasRel,
     Subcategorias as SubcategoriasRel,
-    EstructuraFinanciera, Politica, Categoria, Subcategoria,
+    EstructuraFinanciera, Politica, Categoria, Subcategoria, PeriodoLema
 )
 from Backend.services.excel_fill import fill_from_template
 from Backend.services.word_fill import fill_docx
@@ -235,6 +235,13 @@ def word_carta(db: Session, form_id: int) -> Tuple[BytesIO, str]:
     ctx = _context_word_common(base)
     ctx["gobernador"] = _persona_por_rol(db, "Gobernador")
     ctx["jefe_oap"]   = _persona_por_rol(db, "Jefe OAP")
+    pl = db.query(PeriodoLema).order_by(PeriodoLema.id.desc()).first()
+    if pl:
+        ctx["Periodo"] = f"{pl.inicio_periodo}-{pl.fin_periodo}"
+        ctx["lema_periodo"] = pl.lema
+    else:
+        ctx["Periodo"] = ""
+        ctx["lema_periodo"] = ""
     _merge_ctx_carta(ctx, base)
     return _render_word("carta", form_id, ctx)
 
@@ -309,7 +316,7 @@ def _merge_ctx_carta(ctx: Dict[str, object], base: Dict[str, object]) -> None:
 
     for i, y in enumerate(years, start=1):
         ctx[f"anio_{i}"] = ("" if y is None else y)
-        
+
     lookup: Dict[tuple, Decimal] = {}
     no_year_by_ent: Dict[str, list[Decimal]] = {e: [] for e in ENT_ORDER}
 

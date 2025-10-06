@@ -51,6 +51,13 @@ def _build_lookup(context: Dict[str, object]) -> Dict[str, str]:
     for k, v in (context or {}).items():
         nk = _norm_key(k)
         out[nk] = "" if v is None else str(v)
+        
+        if nk.startswith("nombre_meta_"):
+            suf = nk.split("nombre_meta_")[-1]
+            out[_norm_key(f"meta_{suf}")] = out[nk]
+        if nk.startswith("numero_meta_"):
+            suf = nk.split("numero_meta_")[-1]
+            out[_norm_key(f"cod_meta_{suf}")] = out[nk]
         # dia/día espejos
         if "dia" in nk and "texto" in nk:
             out[nk.replace("dia", "día")] = out[nk]
@@ -149,24 +156,43 @@ def _duplicate_meta_rows(doc: Document, ctx: dict):
     n = _meta_count_from_ctx(ctx)
     if n <= 1:
         return
+
+    rx_any_meta = re.compile(r"\{\{\s*(nombre_meta|numero_meta|meta|cod_meta)(?:_?(\d+))?\s*\}\}", re.IGNORECASE)
+
+    def to_idx1(text: str) -> str:
+        def repl(m: re.Match) -> str:
+            key = m.group(1).lower()
+            if key == "meta":         key = "nombre_meta"
+            if key == "cod_meta":     key = "numero_meta"
+            return f"{{{{{key}_1}}}}"
+        return rx_any_meta.sub(repl, text or "")
+
+    def bump_index(text: str, idx: int) -> str:
+        return (text or "").replace("{{nombre_meta_1}}", f"{{{{nombre_meta_{idx}}}}}") \
+                           .replace("{{ numero_meta_1 }}", f"{{{{ numero_meta_{idx} }}}}") \
+                           .replace("{{numero_meta_1}}", f"{{{{numero_meta_{idx}}}}}") \
+                           .replace("{{ nombre_meta_1 }}", f"{{{{ nombre_meta_{idx} }}}}")
+
     target_tbl = None
     template_row = None
+
     for tbl in doc.tables:
         for row in tbl.rows:
             row_txt = " || ".join(c.text for c in row.cells)
-            if "{{nombre_meta_1}}" in row_txt or "{{numero_meta_1}}" in row_txt:
+            if rx_any_meta.search(row_txt):
                 target_tbl = tbl
                 template_row = row
                 break
         if target_tbl:
             break
+
     if not target_tbl or not template_row:
         return
+
+    for c in template_row.cells:
+        c.text = to_idx1(c.text)
 
     for idx in range(2, n + 1):
         new_row = target_tbl.add_row()
         for c_new, c_tpl in zip(new_row.cells, template_row.cells):
-            t = c_tpl.text or ""
-            t = t.replace("{{nombre_meta_1}}", f"{{{{nombre_meta_{idx}}}}}")
-            t = t.replace("{{numero_meta_1}}", f"{{{{numero_meta_{idx}}}}}")
-            c_new.text = t
+            c_new.text = bump_index(c_tpl.text, idx)
