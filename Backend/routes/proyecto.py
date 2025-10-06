@@ -118,6 +118,9 @@ def crear_formulario(payload: schemas.FormularioCreate, db: Session = Depends(ge
         id_programa=form_db.id_programa,
         id_sector=form_db.id_sector,
         nombre_secretario=form_db.nombre_secretario,
+        oficina_secretario=getattr(form_db, "oficina_secretario", None) or "",
+        duracion_proyecto=getattr(form_db, "duracion_proyecto", None) or 0,
+        cantidad_beneficiarios=getattr(form_db, "cantidad_beneficiarios", None) or 0,
         metas=[schemas.MetaRead(id=m.id, numero_meta=m.numero_meta, nombre_meta=m.nombre_meta) for m in metas_db],
         variables_sectorial=[schemas.VariableSectorialRead(id=v.id, nombre_variable=v.nombre_variable) for v in vars_sectorial_db],
         variables_tecnico=[schemas.VariableTecnicoRead(id=v.id, nombre_variable=v.nombre_variable) for v in vars_tecnico_db],
@@ -141,18 +144,21 @@ def obtener_formulario(form_id: int, db: Session = Depends(get_db)):
     cats_db             = proyecto_service.listar_categorias_por_formulario(db, form_id)
     subcats_db          = proyecto_service.listar_subcategorias_por_formulario(db, form_id)
     est_fin_db          = proyecto_service.listar_estructura_financiera(db, form_id)
+    viab_db = proyecto_service.listar_viabilidades_por_formulario(db, form_id)
+    func_db = proyecto_service.listar_funcionarios_viabilidad(db, form_id)
 
     return schemas.FormularioRead(
         id=form_db.id,
         nombre_proyecto=form_db.nombre_proyecto or "",
         cod_id_mga=form_db.cod_id_mga or 0,
         id_dependencia=form_db.id_dependencia or 0,
-
         id_linea_estrategica=form_db.id_linea_estrategica or 0,
         id_programa=form_db.id_programa or 0,
         id_sector=form_db.id_sector or 0,
         nombre_secretario=form_db.nombre_secretario or "",
-
+        oficina_secretario=getattr(form_db, "oficina_secretario", None) or "",
+        duracion_proyecto=getattr(form_db, "duracion_proyecto", None) or 0,
+        cantidad_beneficiarios=getattr(form_db, "cantidad_beneficiarios", None) or 0,
         metas=[schemas.MetaRead(id=m.id, numero_meta=m.numero_meta, nombre_meta=m.nombre_meta) for m in metas_db] or [],
         variables_sectorial=[schemas.VariableSectorialRead(id=v.id, nombre_variable=v.nombre_variable) for v in vars_sectorial_db] or [],
         variables_tecnico=[schemas.VariableTecnicoRead(id=v.id, nombre_variable=v.nombre_variable) for v in vars_tecnico_db] or [],
@@ -160,19 +166,9 @@ def obtener_formulario(form_id: int, db: Session = Depends(get_db)):
         categorias=[schemas.CategoriaRead(id=c.id, id_politica=c.id_politica, nombre_categoria=c.nombre_categoria) for c in cats_db] or [],
         subcategorias=[schemas.SubcategoriaRead(id=s.id, id_categoria=s.id_categoria, nombre_subcategoria=s.nombre_subcategoria) for s in subcats_db] or [],
         estructura_financiera=[schemas.EstructuraFinancieraRow(id=e.id, anio=e.anio, entidad=e.entidad, valor=e.valor) for e in est_fin_db] or [],
+        viabilidades=[schemas.ViabilidadRead(id=v.id, nombre=v.nombre) for v in viab_db] or [],
+        funcionarios_viabilidad=[schemas.FuncionarioViabilidadIn(id_tipo_viabilidad=f.id_tipo_viabilidad, nombre=f.nombre, cargo=f.cargo) for f in func_db] or [],
     )
-
-
-@router.get("/lista", response_model=List[schemas.ProyectoListRead])
-def listar_proyectos(db: Session = Depends(get_db)):
-    return [
-        schemas.ProyectoListRead(
-            nombre=r.nombre_proyecto,
-            cod_id_mga=r.cod_id_mga,
-            id_dependencia=r.id_dependencia
-        )
-        for r in proyecto_service.listar_proyectos(db)
-    ]
 
 @router.post("", response_model=schemas.FormularioRead)
 def crear_borrador_endpoint(db: Session = Depends(get_db)):
@@ -246,3 +242,21 @@ def crear_minimo(payload: schemas.FormularioCreateMinimo, db: Session = Depends(
     form = proyecto_service.crear_formulario_minimo(db, payload)
     return schemas.FormularioId(id=form.id)
 
+@router.get("/viabilidad", response_model=List[schemas.ViabilidadRead])
+def viabilidad(db: Session = Depends(get_db)):
+    return proyecto_service.listar_viabilidad(db)
+
+@router.get("/tipos_viabilidad", response_model=List[schemas.TipoViabilidadRead])
+def tipos_viabilidad(db: Session = Depends(get_db)):
+    return proyecto_service.listar_tipos_viabilidad(db)
+
+@router.put("/formulario/{form_id}/viabilidades", response_model=schemas.FormularioRead)
+def upsert_viabilidades(form_id:int, body: schemas.IdsIn, db: Session = Depends(get_db)):
+    proyecto_service.replace_viabilidades(db, form_id, body.ids or [])
+    return obtener_formulario(form_id, db)
+
+@router.put("/formulario/{form_id}/funcionarios-viabilidad", response_model=schemas.FormularioRead)
+def upsert_funcionarios_viabilidad(form_id:int, body: schemas.FuncionariosViabilidadUpsertIn, db: Session = Depends(get_db)):
+    filas = getattr(body, "funcionarios", []) or []
+    proyecto_service.replace_funcionarios_viabilidad(db, form_id, [f.dict() for f in filas])
+    return obtener_formulario(form_id, db)

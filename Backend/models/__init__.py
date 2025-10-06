@@ -17,3 +17,7 @@ from .categorias import Categorias
 from .subcategoria import Subcategoria
 from .subcategorias import Subcategorias
 from .estructura_financiera import EstructuraFinanciera
+from .viabilidad import Viabilidad
+from .viabilidades import Viabilidades
+from .tipo_viabilidad import TipoViabilidad
+from .funcionario_viabilidad import FuncionarioViabilidad

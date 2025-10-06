@@ -11,3 +11,6 @@ class Formulario(Base):
     id_programa = Column(Integer, ForeignKey("programa.id"), nullable=True)
     id_sector = Column(Integer, ForeignKey("sector.id"), nullable=True)
     nombre_secretario = Column(Text, nullable=True)
+    oficina_secretario = Column(Text, nullable=True)
+    duracion_proyecto = Column(Integer, nullable=True)
+    cantidad_beneficiarios = Column(Integer, nullable=True)

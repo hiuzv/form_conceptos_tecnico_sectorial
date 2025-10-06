@@ -10,6 +10,8 @@ from Backend.models import (
     Politicas as PoliticasRel,
     Categorias as CategoriasRel,
     Subcategorias as SubcategoriasRel,
+    Viabilidad, Viabilidades,
+    TipoViabilidad, FuncionarioViabilidad,
 )
 from Backend import schemas
 
@@ -321,3 +323,50 @@ def crear_formulario_minimo(db: Session, data: schemas.FormularioCreateMinimo) -
     db.refresh(form)
     return form
 
+def listar_viabilidad(db: Session):
+    return db.query(Viabilidad).order_by(Viabilidad.nombre).all()
+
+def listar_tipos_viabilidad(db: Session):
+    return db.query(TipoViabilidad).order_by(TipoViabilidad.id).all()
+
+def listar_viabilidades_por_formulario(db: Session, form_id: int):
+    return (
+        db.query(Viabilidad)
+        .join(Viabilidades, Viabilidades.id_viabilidad == Viabilidad.id)
+        .filter(Viabilidades.id_formulario == form_id)
+        .order_by(Viabilidad.nombre)
+        .all()
+    )
+
+def listar_funcionarios_viabilidad(db: Session, form_id: int):
+    return (
+        db.query(FuncionarioViabilidad)
+        .filter(FuncionarioViabilidad.id_formulario == form_id)
+        .order_by(FuncionarioViabilidad.id_tipo_viabilidad)
+        .all()
+    )
+
+def replace_viabilidades(db: Session, form_id: int, ids: List[int]):
+    db.query(Viabilidades).filter(Viabilidades.id_formulario == form_id).delete()
+    rows = [Viabilidades(id_formulario=form_id, id_viabilidad=i) for i in (ids or [])]
+    if rows:
+        db.add_all(rows)
+    db.commit()
+
+def replace_funcionarios_viabilidad(db: Session, form_id: int, filas: List[dict]):
+    db.query(FuncionarioViabilidad).filter(FuncionarioViabilidad.id_formulario == form_id).delete()
+    to_add = []
+    for f in filas or []:
+        itv = f.get("id_tipo_viabilidad")
+        nombre = (f.get("nombre") or "").strip()
+        cargo  = (f.get("cargo") or "").strip()
+        if itv and (nombre or cargo):
+            to_add.append(FuncionarioViabilidad(
+                id_formulario=form_id,
+                id_tipo_viabilidad=itv,
+                nombre=nombre,
+                cargo=cargo
+            ))
+    if to_add:
+        db.add_all(to_add)
+    db.commit()

@@ -9,9 +9,9 @@ import { Loader2, Plus, Trash2, Download, ArrowLeft, PlusCircle, Search, Refresh
 
 type ID = number;
 interface Opcion { id: ID; nombre: string; codigo?: number | null; }
-type EntidadFin = "DEPARTAMENTO" | "MUNICIPIO" | "NACION" | "OTRO";
+type EntidadFin = "DEPARTAMENTO" | "PROPIOS" | "SGP_LIBRE_INVERSION" | "SGP_LIBRE_DESTINACION" | "SGP_APSB" | "SGP_EDUCACION" | "SGP_ALIMENTACION_ESCOLAR" | "SGP_CULTURA" | "SGP_DEPORTE" | "SGP_SALUD" | "MUNICIPIO" | "NACION" | "OTROS";
 
-const ENTIDADES: EntidadFin[] = ["DEPARTAMENTO", "MUNICIPIO", "NACION", "OTRO"];
+const ENTIDADES: EntidadFin[] = ["DEPARTAMENTO", "PROPIOS", "SGP_LIBRE_INVERSION", "SGP_LIBRE_DESTINACION", "SGP_APSB", "SGP_EDUCACION", "SGP_ALIMENTACION_ESCOLAR", "SGP_CULTURA", "SGP_DEPORTE", "SGP_SALUD", "MUNICIPIO", "NACION", "OTROS"];
 const API_BASE_DEFAULT = "http://localhost:8000";
 
 /* ---------- Tipos de estado ---------- */
@@ -25,6 +25,7 @@ interface DatosBasicosDB {
   nombre_secretario: string;
   oficina_secretario: string;
   duracion_proyecto: number;
+  cantidad_beneficiarios: number;
 }
 
 interface PoliticaFila {
@@ -130,6 +131,11 @@ export default function App() {
   const [total, setTotal] = useState<number | null>(null);
   const [lista, setLista] = useState<ProyectoListaItemFlex[]>([]);
   const [loadingLista, setLoadingLista] = useState(false);
+  const [viabilidadList, setViabilidadList] = useState<Opcion[]>([]);
+  const [tiposViabilidad, setTiposViabilidad] = useState<Opcion[]>([]);
+  const [viabilidadesSel, setViabilidadesSel] = useState<ID[]>([]);
+  const [funcionariosViab, setFuncionariosViab] = useState<Record<number, {nombre:string; cargo:string}>>({});
+
 
   const queryLista = async (resetPage=false) => {
     try {
@@ -163,6 +169,20 @@ export default function App() {
   })(); }, []);
   useEffect(() => { queryLista(true); }, []);
 
+  // 👉 Nuevo: calcular última página y control de botones
+  const lastPage = useMemo(
+    () => (total != null ? Math.max(1, Math.ceil(total / pageSize)) : null),
+    [total, pageSize]
+  );
+  const canPrev = page > 1;
+  const canNext = lastPage != null ? page < lastPage : (lista.length === pageSize && lista.length > 0);
+
+  // 👉 Nuevo: al cambiar page/pageSize, recargar lista SIN setTimeout
+  useEffect(() => {
+    if (vista !== "lista") return;
+    queryLista(false);
+  }, [page, pageSize, vista]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // FORM
   const [lineas, setLineas] = useState<Opcion[]>([]);
   const [sectores, setSectores] = useState<Opcion[]>([]);
@@ -186,6 +206,7 @@ export default function App() {
       nombre_secretario: "",
       oficina_secretario: "",
       duracion_proyecto: 0,
+      cantidad_beneficiarios: 0,
     },
     politicas: [{ id_politica: null, id_categoria: null, id_subcategoria: null, valor_destinado: 0 }],
     metas_sel: [],
@@ -217,24 +238,28 @@ export default function App() {
   const difProyectoPoliticas = useMemo(() => round2(totalProyecto - totalPoliticas), [totalProyecto, totalPoliticas]);
   const igualesProyectoPoliticas = numbersEqual(totalProyecto, totalPoliticas);
 
-  // Carga catálogos
   useEffect(() => {
     if (vista !== "form") return;
-    (async () => {
-      try {
-        const [lineasR, varsSecR, varsTecR, politR] = await Promise.all([
-          fetchJson("/proyecto/lineas"),
-          fetchJson("/proyecto/variables_sectorial"),
-          fetchJson("/proyecto/variables_tecnico"),
-          fetchJson("/proyecto/politicas"),
-        ]);
-        setLineas(sortOptions(normalizaFlex(lineasR, ["nombre", "nombre_linea_estrategica"])));
-        setVariablesSectorial(sortById(normalizaFlex(varsSecR, ["nombre_variable", "nombre"])));
-        setVariablesTecnico(sortById(normalizaFlex(varsTecR, ["nombre_variable", "nombre"])));
-        setPoliticas(sortOptions(normalizaFlex(politR, ["nombre_politica", "nombre"])));
-      } catch (e) { console.error(e); }
-    })();
+      (async () => {
+        try {
+          const [lineasR, varsSecR, varsTecR, politR, viaR, tiposVR] = await Promise.all([
+            fetchJson("/proyecto/lineas"),
+            fetchJson("/proyecto/variables_sectorial"),
+            fetchJson("/proyecto/variables_tecnico"),
+            fetchJson("/proyecto/politicas"),
+            fetchJson("/proyecto/viabilidad"),
+            fetchJson("/proyecto/tipos_viabilidad"),
+          ]);
+          setLineas(sortOptions(normalizaFlex(lineasR, ["nombre", "nombre_linea_estrategica"])));
+          setVariablesSectorial(sortById(normalizaFlex(varsSecR, ["nombre_variable", "nombre"])));
+          setVariablesTecnico(sortById(normalizaFlex(varsTecR, ["nombre_variable", "nombre"])));
+          setPoliticas(sortOptions(normalizaFlex(politR, ["nombre_politica", "nombre"])));
+          setViabilidadList(sortOptions(normalizaFlex(viaR, ["nombre"])));
+          setTiposViabilidad(sortById(normalizaFlex(tiposVR, ["nombre"])));
+        } catch (e) { console.error(e); }
+      })();
   }, [vista]);
+
 
   // Sectores por línea
   useEffect(() => {
@@ -370,8 +395,10 @@ export default function App() {
         cod_id_mga: Number(datos.datos_basicos.cod_id_mga || 0),
         id_dependencia: datos.datos_basicos.id_dependencia,
         nombre_secretario: datos.datos_basicos.nombre_secretario ?? "",
+        oficina_secretario: datos.datos_basicos.oficina_secretario ?? "",
+        duracion_proyecto: Number(datos.datos_basicos.duracion_proyecto || 0),
+        cantidad_beneficiarios: Number(datos.datos_basicos.cantidad_beneficiarios || 0),
       };
-      // NUNCA mandar 0 a FKs
       if (Number.isFinite(datos.datos_basicos.id_linea_estrategica) && Number(datos.datos_basicos.id_linea_estrategica) > 0) b.id_linea_estrategica = Number(datos.datos_basicos.id_linea_estrategica);
       if (Number.isFinite(datos.datos_basicos.id_sector)            && Number(datos.datos_basicos.id_sector)            > 0) b.id_sector            = Number(datos.datos_basicos.id_sector);
       if (Number.isFinite(datos.datos_basicos.id_programa)          && Number(datos.datos_basicos.id_programa)          > 0) b.id_programa          = Number(datos.datos_basicos.id_programa);
@@ -425,7 +452,25 @@ export default function App() {
         body: JSON.stringify({ ids: payload.subcategorias }),
       });
     }
+    if (which === 6) {
+      await fetch(`${API_BASE_DEFAULT}/proyecto/formulario/${id}/viabilidades`, {
+        method:"PUT", headers:{ "Content-Type":"application/json" },
+        body: JSON.stringify({ ids: viabilidadesSel }),
+      });
+
+      const funcionarios = tiposViabilidad.map(t => ({
+        id_tipo_viabilidad: t.id,
+        nombre: funcionariosViab[t.id]?.nombre || "",
+        cargo:  funcionariosViab[t.id]?.cargo  || "",
+      })).filter(f => f.nombre || f.cargo);
+
+      await fetch(`${API_BASE_DEFAULT}/proyecto/formulario/${id}/funcionarios-viabilidad`, {
+        method:"PUT", headers:{ "Content-Type":"application/json" },
+        body: JSON.stringify({ funcionarios }),
+      });
+    }
   }
+
 
   async function saveAll() { for (const w of [1,2,3,4,5]) { await saveStep(w); } }
 
@@ -474,10 +519,9 @@ export default function App() {
   async function loadForm(id: number) {
     try {
       const r = await fetchJson(`/proyecto/formulario/${id}`);
-
       const nombre_proyecto = r.nombre_proyecto ?? r.nombre ?? "";
       const cod_id_mga = Number(r.cod_id_mga ?? r.cod_mga ?? r.codigo_mga ?? 0);
-
+     
       // Estructura financiera
       const efUI: Record<string, string> = {};
       let minAnio: number | null = null;
@@ -496,7 +540,11 @@ export default function App() {
       const metasSel = (r.metas || []).map((m: any) => Number(m.id ?? m.id_meta ?? m.meta_id ?? m.codigo)).filter(Number.isFinite);
       const varsSecSel = (r.variables_sectorial || r.variables_sectoriales || []).map((v: any) => Number(v.id ?? v.id_variable ?? v.variable_id)).filter(Number.isFinite);
       const varsTecSel = (r.variables_tecnico || r.variables_tecnicas || []).map((v: any) => Number(v.id ?? v.id_variable ?? v.variable_id)).filter(Number.isFinite);
+      const viaSel = (r.viabilidades || []).map((v:any)=> Number(v.id ?? v.id_viabilidad ?? v.viabilidad_id)).filter(Number.isFinite);
+      const funcs = Object.fromEntries((r.funcionarios_viabilidad || []).map((f:any) => [Number(f.id_tipo_viabilidad), { nombre: String(f.nombre||""), cargo: String(f.cargo||"") }]));
 
+      setViabilidadesSel(viaSel);
+      setFuncionariosViab(funcs);
       setDatos(prev => ({
         ...prev,
         datos_basicos: {
@@ -508,8 +556,9 @@ export default function App() {
           id_sector:            r.id_sector            ?? prev.datos_basicos.id_sector            ?? null,
           id_programa:          r.id_programa          ?? prev.datos_basicos.id_programa          ?? null,
           nombre_secretario: r.nombre_secretario ?? prev.datos_basicos.nombre_secretario ?? "",
-          oficina_secretario: prev.datos_basicos.oficina_secretario ?? "",
-          duracion_proyecto: prev.datos_basicos.duracion_proyecto ?? 0,
+          oficina_secretario: r.oficina_secretario ?? prev.datos_basicos.oficina_secretario ?? "",
+          duracion_proyecto:  r.duracion_proyecto  ?? prev.datos_basicos.duracion_proyecto  ?? 0,
+          cantidad_beneficiarios: r.cantidad_beneficiarios ?? prev.datos_basicos.cantidad_beneficiarios ?? 0,
         },
         metas_sel: metasSel,
         variables_sectorial_sel: varsSecSel,
@@ -569,6 +618,7 @@ export default function App() {
         nombre_secretario: "",
         oficina_secretario: "",
         duracion_proyecto: 0,
+        cantidad_beneficiarios: 0,
       },
       politicas: [{ id_politica: null, id_categoria: null, id_subcategoria: null, valor_destinado: 0 }],
       metas_sel: [],
@@ -609,10 +659,20 @@ export default function App() {
                 <SelectNative opciones={deps} value={fDependencia} onChange={setFDependencia} placeholder="Todas" />
               </div>
               <div className="flex items-end gap-2">
-                <Button className="gap-2" onClick={()=> queryLista(true)}>
+                {/* 👉 Ahora solo resetea a página 1; el useEffect hace el fetch */}
+                <Button className="gap-2" onClick={()=> setPage(1)}>
                   <Search className="h-4 w-4"/> Filtrar
                 </Button>
-                <Button variant="outline" className="gap-2" onClick={()=>{ setFNombre(""); setFCodMga(""); setFDependencia(null); queryLista(true); }}>
+                <Button
+                  variant="outline"
+                  className="gap-2"
+                  onClick={()=>{
+                    setFNombre("");
+                    setFCodMga("");
+                    setFDependencia(null);
+                    setPage(1);
+                  }}
+                >
                   <RefreshCcw className="h-4 w-4"/> Limpiar
                 </Button>
               </div>
@@ -668,10 +728,29 @@ export default function App() {
           <div className="flex items-center justify-between">
             <div className="text-sm text-slate-600">{total != null ? `Total: ${total} registros` : ""}</div>
             <div className="flex items-center gap-2">
-              <Button variant="outline" onClick={()=>{ if (page>1) { setPage(p=>p-1); setTimeout(()=>queryLista(false), 0); } }} disabled={page<=1}>Anterior</Button>
-              <div className="text-sm">Página {page}</div>
-              <Button variant="outline" onClick={()=>{ setPage(p=>p+1); setTimeout(()=>queryLista(false), 0); }} disabled={lista.length < pageSize && !!total}>Siguiente</Button>
-              <select className="h-9 rounded-md border px-2 text-sm" value={pageSize} onChange={(e)=>{ setPageSize(Number(e.target.value)); setPage(1); setTimeout(()=>queryLista(true),0); }}>
+              <Button
+                variant="outline"
+                onClick={()=> setPage(p => Math.max(1, p - 1))}
+                disabled={!canPrev}
+              >
+                Anterior
+              </Button>
+              <div className="text-sm">Página {page}{lastPage ? ` de ${lastPage}` : ""}</div>
+              <Button
+                variant="outline"
+                onClick={()=> setPage(p => p + 1)}
+                disabled={!canNext}
+              >
+                Siguiente
+              </Button>
+              <select
+                className="h-9 rounded-md border px-2 text-sm"
+                value={pageSize}
+                onChange={(e)=>{
+                  setPageSize(Number(e.target.value));
+                  setPage(1);
+                }}
+              >
                 {[10,20,50].map(n=> <option key={n} value={n}>{n}/página</option>)}
               </select>
             </div>
@@ -797,6 +876,11 @@ export default function App() {
               <Field label="Duración del proyecto (meses)">
                 <Input type="number" value={datos.datos_basicos.duracion_proyecto}
                   onChange={e=> setDatos(p=>({ ...p, datos_basicos: { ...p.datos_basicos, duracion_proyecto: Number(e.target.value || 0) } }))} />
+              </Field>
+
+              <Field label="Cantidad de beneficiarios">
+                <Input type="number" value={datos.datos_basicos.cantidad_beneficiarios} 
+                onChange={(e) => setDatos(p => ({ ...p, datos_basicos: { ...p.datos_basicos, cantidad_beneficiarios: Number(e.target.value || 0) } }))} />
               </Field>
             </CardContent>
           </Card>
@@ -1056,41 +1140,77 @@ export default function App() {
           </Card>
         )}
 
-        {/* Paso 6 */}
         {step===6 && (
           <Card className="shadow-sm">
-            <CardContent className="p-4 text-sm text-slate-600">
-              (Esta sección se define más adelante)
+            <CardContent className="p-4 space-y-6">
+              <div className="space-y-2">
+                <h3 className="font-semibold">Viabilidad</h3>
+                <div className="border rounded-xl p-3 max-h-72 overflow-auto space-y-1">
+                  {viabilidadList.map(o => (
+                    <CheckItem
+                      key={`via-${o.id}`}
+                      label={`${o.id} — ${o.nombre}`}
+                      checked={viabilidadesSel.includes(o.id)}
+                      onChange={(v)=> setViabilidadesSel(prev=>{
+                        const s = new Set(prev);
+                        if (v) s.add(o.id); else s.delete(o.id);
+                        return Array.from(s);
+                      })}
+                    />
+                  ))}
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                <h3 className="font-semibold">Funcionarios por tipo de viabilidad</h3>
+                <div className="grid gap-3 md:grid-cols-3">
+                  {tiposViabilidad.map(t => {
+                    const val = funcionariosViab[t.id] || { nombre:"", cargo:"" };
+                    return (
+                      <div key={t.id} className="border rounded-xl p-3 space-y-2">
+                        <div className="font-medium">{t.nombre}</div>
+                        <div className="grid gap-2">
+                          <Label>Nombre</Label>
+                          <Input
+                            value={val.nombre}
+                            onChange={(e)=> setFuncionariosViab(p=>({ ...p, [t.id]: { ...p[t.id], nombre:e.target.value } }))}
+                            placeholder="Nombre del funcionario"
+                          />
+                        </div>
+                        <div className="grid gap-2">
+                          <Label>Cargo</Label>
+                          <Input
+                            value={val.cargo}
+                            onChange={(e)=> setFuncionariosViab(p=>({ ...p, [t.id]: { ...p[t.id], cargo:e.target.value } }))}
+                            placeholder="Cargo del funcionario"
+                          />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
             </CardContent>
           </Card>
         )}
 
         {/* Paso 7 */}
-        {step===7 && (
-          <Card className="shadow-sm">
-            <CardContent className="p-4 space-y-4">
-              <h3 className="font-semibold">Resumen que se enviará</h3>
+          {step === 7 && (
+            <div className="w-full">
+              <h2 className="text-2xl font-bold mb-6">Descargas</h2>
 
-              <div className={cx("rounded-xl border p-3 text-sm", igualesProyectoPoliticas ? "border-emerald-300 bg-emerald-50" : "border-amber-300 bg-amber-50")}>
-                <div className="flex flex-wrap gap-4 items-center justify-between">
-                  <div>
-                    <div><span className="font-medium">Total Proyecto (Estructura financiera):</span> {toMoney(totalProyecto)}</div>
-                    <div><span className="font-medium">Total Políticas:</span> {toMoney(totalPoliticas)}</div>
-                    {!igualesProyectoPoliticas && (<div className="mt-1"><span className="font-medium">Diferencia:</span> {toMoney(difProyectoPoliticas)}</div>)}
-                  </div>
-                  {igualesProyectoPoliticas ? <Badge variant="secondary">Valores coinciden</Badge> : <Badge variant="destructive">Advertencia: valores diferentes</Badge>}
+              {typeof formId === "number" ? (
+                <DownloadList
+                  formId={formId}
+                  baseUrl={import.meta.env.VITE_API_URL ?? ""}
+                />
+              ) : (
+                <div className="text-sm text-gray-600">
+                  Guarda el formulario para habilitar las descargas.
                 </div>
-              </div>
-
-              <div className="flex flex-wrap gap-2">
-                <Button className="gap-2" onClick={descargarExcelDirecto} disabled={sending}>
-                  {sending ? <Loader2 className="h-4 w-4 animate-spin"/> : <Download className="h-4 w-4"/>}
-                  DESCARGAR
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        )}
+              )}
+            </div>
+          )}
 
         {/* Navegación inferior */}
         <div className="flex items-center justify-between">
@@ -1147,5 +1267,143 @@ function CheckItem({ label, checked, onChange }:{ label:string; checked:boolean;
       <input type="checkbox" className="h-4 w-4" checked={checked} onChange={e=>onChange(e.target.checked)} />
       <span>{label}</span>
     </label>
+  );
+}
+
+type Item = {
+  id: string;
+  title: string;
+  endpoint: string;
+  filename: string;
+  kind: "word" | "excel";
+};
+
+function DownloadList({ formId, baseUrl }: { formId: number | string; baseUrl: string }) {
+  const [downloading, setDownloading] = React.useState<string | null>(null);
+
+  const items: Item[] = [
+    {
+      id: "carta",
+      title: "2. Modelo de carta de presentación",
+      endpoint: `/descarga/word/carta/${formId}`,
+      filename: "2_Carta_de_presentacion.docx",
+      kind: "word",
+    },
+    {
+      id: "concepto",
+      title: "3. Concepto técnico general y concepto sectorial PDD 2024-2027",
+      endpoint: `/descarga/excel/concepto-tecnico-sectorial/${formId}`,
+      filename: "3_y_4_Concepto_tecnico_y_sectorial_2025.xlsx",
+      kind: "excel",
+    },
+    {
+      id: "cert-precios",
+      title: "4. Modelo de certificación de precios",
+      endpoint: `/descarga/word/cert-precios/${formId}`,
+      filename: "4_Certificacion_de_precios.docx",
+      kind: "word",
+    },
+    {
+      id: "no-cofin",
+      title: "5. No doble cofinanciación",
+      endpoint: `/descarga/word/no-doble-cofin/${formId}`,
+      filename: "5_No_doble_cofinanciacion.docx",
+      kind: "word",
+    },
+    {
+      id: "cadena",
+      title: "6. Cadena de valor",
+      endpoint: `/descarga/excel/cadena-valor/${formId}`,
+      filename: "6_Cadena_de_valor.xlsx",
+      kind: "excel",
+    },
+    {
+      id: "viabilidad",
+      title: "7. Viabilidad dependencias",
+      endpoint: `/descarga/excel/viabilidad-dependencias/${formId}`,
+      filename: "7_Viabilidad_dependencias.xlsx",
+      kind: "excel",
+    },
+  ];
+
+  const handleDownload = async (item: Item) => {
+    try {
+      setDownloading(item.id);
+      const res = await fetch(baseUrl + item.endpoint, { method: "GET" });
+      if (!res.ok) throw new Error("Error al descargar");
+      const blob = await res.blob();
+
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = item.filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      console.error(e);
+      alert("No fue posible descargar el archivo.");
+    } finally {
+      setDownloading(null);
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      {items.map((item) => (
+        <div
+          key={item.id}
+          className="flex items-center justify-between gap-4 border-b pb-4"
+        >
+          {/* Izquierda: icono + título*/}
+          <div className="flex-1">
+            <div className="flex items-start gap-3">
+              <div className="shrink-0 mt-1">
+                {item.kind === "word" ? <WordIcon /> : <ExcelIcon />}
+              </div>
+              <div>
+                <div className="text-[15px] text-green-700 hover:underline font-medium">
+                  {item.title}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Derecha: botón Descarga*/}
+          <div className="shrink-0">
+            <button
+              onClick={() => handleDownload(item)}
+              disabled={downloading === item.id}
+              className="px-4 h-10 rounded-md bg-green-700 text-white font-semibold hover:bg-green-800 disabled:opacity-60"
+            >
+              {downloading === item.id ? "Descargando..." : "Descarga"}
+            </button>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function WordIcon() {
+  return (
+    <svg width="28" height="28" viewBox="0 0 24 24" className="text-blue-700">
+      <rect x="3" y="2" width="14" height="20" rx="2" fill="#e9f2ff" />
+      <rect x="7" y="6" width="10" height="2" fill="#1d4ed8" />
+      <rect x="7" y="10" width="10" height="2" fill="#1d4ed8" />
+      <rect x="7" y="14" width="7" height="2" fill="#1d4ed8" />
+    </svg>
+  );
+}
+
+function ExcelIcon() {
+  return (
+    <svg width="28" height="28" viewBox="0 0 24 24" className="text-green-700">
+      <rect x="3" y="2" width="14" height="20" rx="2" fill="#ecfdf5" />
+      <rect x="7" y="6" width="10" height="2" fill="#047857" />
+      <rect x="7" y="10" width="10" height="2" fill="#047857" />
+      <rect x="7" y="14" width="10" height="2" fill="#047857" />
+    </svg>
   );
 }

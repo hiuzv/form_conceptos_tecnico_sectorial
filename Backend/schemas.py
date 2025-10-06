@@ -67,11 +67,12 @@ class EstructuraFinancieraIn(BaseModel):
     valor: ValorMoneda
 
 class EstructuraFinancieraRow(BaseModel):
-    id: int
+    id: Optional[int] = None
     anio: Optional[int] = None
     entidad: str
     valor: ValorMoneda
-    class Config: from_attributes = True
+    class Config: 
+        from_attributes = True
 
 class EstructuraFinancieraBatchIn(BaseModel):
     form_id: int
@@ -98,6 +99,26 @@ class FormularioCreate(BaseModel):
     categorias: List[int] = []
     subcategorias: List[int] = []
 
+class ViabilidadRead(BaseModel):
+    id: int
+    nombre: str
+    class Config: 
+        from_attributes = True
+
+class TipoViabilidadRead(BaseModel):
+    id: int
+    nombre: str
+    class Config:
+        from_attributes = True
+
+class FuncionarioViabilidadIn(BaseModel):
+    id_tipo_viabilidad: int
+    nombre: str
+    cargo: str
+
+class FuncionariosViabilidadUpsertIn(BaseModel):
+    funcionarios: List[FuncionarioViabilidadIn] = []
+
 class FormularioRead(BaseModel):
     id: int
     nombre_proyecto: str
@@ -115,6 +136,11 @@ class FormularioRead(BaseModel):
     categorias: List[CategoriaRead] = []
     subcategorias: List[SubcategoriaRead] = []
     class Config: from_attributes = True
+    viabilidades: List[ViabilidadRead] = []
+    funcionarios_viabilidad: List[FuncionarioViabilidadIn] = []
+    oficina_secretario: Optional[str] = None
+    duracion_proyecto: Optional[int] = None
+    cantidad_beneficiarios: Optional[int] = None
     
 class ProyectoListRead(BaseModel):
     nombre: str
@@ -129,6 +155,9 @@ class FormularioUpsertBasicos(BaseModel):
     id_programa: Optional[int] = None
     id_sector: Optional[int] = None
     nombre_secretario: Optional[str] = None
+    oficina_secretario: Optional[str] = None
+    duracion_proyecto: Optional[int] = None
+    cantidad_beneficiarios: Optional[int] = None
 
 class IdsIn(BaseModel):
     ids: List[int] = []
@@ -150,3 +179,5 @@ class FormularioCreateMinimo(BaseModel):
 
 class FormularioId(BaseModel):
     id: int
+
+

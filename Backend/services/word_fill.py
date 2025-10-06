@@ -122,11 +122,51 @@ def fill_docx(
     lookup = _build_lookup(context)
     doc = Document(str(template_path))
 
+    _duplicate_meta_rows(doc, context)
+
     for p in _iter_all_paragraphs(doc):
         _replace_in_paragraph(p, lookup)
+
+    for tbl in doc.tables:
+        for row in tbl.rows:
+            for cell in row.cells:
+                for p in cell.paragraphs:
+                    _replace_in_paragraph(p, lookup)
 
     out_dir = output_dir or base_dir
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / (output_name or f"filled_{template_name}")
     doc.save(str(out_path))
     return out_path
+
+def _meta_count_from_ctx(ctx: dict) -> int:
+    i = 1
+    while ctx.get(f"nombre_meta_{i}"):
+        i += 1
+    return i - 1
+
+def _duplicate_meta_rows(doc: Document, ctx: dict):
+    n = _meta_count_from_ctx(ctx)
+    if n <= 1:
+        return
+    target_tbl = None
+    template_row = None
+    for tbl in doc.tables:
+        for row in tbl.rows:
+            row_txt = " || ".join(c.text for c in row.cells)
+            if "{{nombre_meta_1}}" in row_txt or "{{numero_meta_1}}" in row_txt:
+                target_tbl = tbl
+                template_row = row
+                break
+        if target_tbl:
+            break
+    if not target_tbl or not template_row:
+        return
+
+    for idx in range(2, n + 1):
+        new_row = target_tbl.add_row()
+        for c_new, c_tpl in zip(new_row.cells, template_row.cells):
+            t = c_tpl.text or ""
+            t = t.replace("{{nombre_meta_1}}", f"{{{{nombre_meta_{idx}}}}}")
+            t = t.replace("{{numero_meta_1}}", f"{{{{numero_meta_{idx}}}}}")
+            c_new.text = t
