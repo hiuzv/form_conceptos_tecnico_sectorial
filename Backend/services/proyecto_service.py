@@ -329,7 +329,7 @@ def crear_formulario_minimo(db: Session, data: schemas.FormularioCreateMinimo) -
     return form
 
 def listar_viabilidad(db: Session):
-    return db.query(Viabilidad).order_by(Viabilidad.nombre).all()
+    return db.query(Viabilidad).order_by(Viabilidad.id).all()
 
 def listar_tipos_viabilidad(db: Session):
     return db.query(TipoViabilidad).order_by(TipoViabilidad.id).all()

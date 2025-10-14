@@ -5,9 +5,14 @@ from openpyxl.utils import get_column_letter, coordinate_to_tuple
 from openpyxl.worksheet.worksheet import Worksheet
 import copy
 import re
+import unicodedata
 
-TEMPLATE_NAME = "3_y_4_Concepto_tecnico_y_sectorial_2025.xlsx"
-OUTPUT_PATTERN = "{}_3_y_4_Concepto_tecnico_y_sectorial_2025.xlsx"
+TEMPLATE_CONCEPTO = "3_y_4_Concepto_tecnico_y_sectorial_2025.xlsx"
+TEMPLATE_CADENA = "6.Cadena_de_valor.xlsx"
+TEMPLATE_VIABILIDAD = "7.Viabilidad_dependencias.xlsx"
+OUTPUT_CONCEPTO = "{}_3_y_4_Concepto_tecnico_y_sectorial_2025.xlsx"
+OUTPUT_CADENA = "{}_6.Cadena_de_valor.xlsx"
+OUTPUT_VIABILIDAD = "{}_7.Viabilidad_dependencias.xlsx"
 
 
 def _next_sequential_index(out_dir: Path) -> int:
@@ -24,8 +29,6 @@ def _next_sequential_index(out_dir: Path) -> int:
                 pass
     return max_n + 1
 
-
-# ---------- Escritura segura sobre celdas combinadas ----------
 def _anchor_of_merged(ws: Worksheet, coord: str) -> str:
     r, c = coordinate_to_tuple(coord)
     for mr in ws.merged_cells.ranges:
@@ -36,8 +39,6 @@ def _anchor_of_merged(ws: Worksheet, coord: str) -> str:
 def _write(ws: Worksheet, coord: str, value):
     ws[_anchor_of_merged(ws, coord)] = value
 
-
-# ---------- Utilidades: estilos / merges por bloque ----------
 def _copy_row_style(ws: Worksheet, src_row: int, dst_row: int):
     ws.row_dimensions[dst_row].height = ws.row_dimensions[src_row].height
     max_col = ws.max_column
@@ -70,20 +71,13 @@ def _clone_block_styles_merges(ws: Worksheet, src_start: int, src_end: int, dst_
     merges = merges_cache if merges_cache is not None else _get_block_merges(ws, src_start, src_end)
     _apply_block_merges(ws, merges, dst_start, src_start)
 
-
-# ---------- Detectar anclas de rótulo/valor ----------
 def _find_label_anchor(ws: Worksheet, row: int, text: str):
-    """Devuelve (row, col) de la celda cuyo valor coincide exactamente con 'text' en esa fila."""
     for col in range(1, ws.max_column + 1):
         if (ws.cell(row=row, column=col).value or "") == text:
             return (row, col)
     return None
 
 def _find_value_anchor_col_for_row(ws: Worksheet, row: int, label_col: Optional[int]) -> int:
-    """
-    En la 'row', devuelve la columna ancla del primer merge horizontal que NO cubre la columna del rótulo.
-    Si no hay merges, usa 3 (columna 'C').
-    """
     candidates = []
     for mr in ws.merged_cells.ranges:
         if mr.min_row == row and mr.max_row == row:
@@ -94,10 +88,7 @@ def _find_value_anchor_col_for_row(ws: Worksheet, row: int, label_col: Optional[
             return mr.min_col
     return 3 
 
-
-# ---------- Utilidades: mover rango grande (simular “Insert Copied Cells”) ----------
 def _collect_merges_in_rows(ws: Worksheet, start_row: int) -> List[Tuple[int, int, int, int]]:
-    """Merges cuyo min_row >= start_row (todo lo que está desde start_row hacia abajo)."""
     out: List[Tuple[int, int, int, int]] = []
     for mr in ws.merged_cells.ranges:
         if mr.min_row >= start_row:
@@ -116,7 +107,6 @@ def _remerge_with_offset(ws: Worksheet, ranges: List[Tuple[int, int, int, int]],
         ws.merge_cells(start_row=r1 + row_off, start_column=c1, end_row=r2 + row_off, end_column=c2)
 
 def _move_down_from_row(ws: Worksheet, start_row: int, row_off: int):
-    """Mueve TODO desde start_row hacia abajo 'row_off' filas, preservando merges y alturas."""
     if row_off <= 0:
         return
     max_col_letter = get_column_letter(ws.max_column)
@@ -129,36 +119,25 @@ def _move_down_from_row(ws: Worksheet, start_row: int, row_off: int):
         ws.row_dimensions[r + row_off].height = h
     _remerge_with_offset(ws, merges, row_off)
 
-
-def fill_from_template(
-    base_dir: Path,
-    data: dict,
-    force_index: Optional[int] = None,
-    output_dir: Optional[Path] = None,
-) -> Path:
-    template_path = base_dir / TEMPLATE_NAME
+def fill_from_template(base_dir: Path, data: dict, force_index: Optional[int] = None, output_dir: Optional[Path] = None) -> Path:
+    template_path = base_dir / TEMPLATE_CONCEPTO
     if not template_path.exists():
         raise FileNotFoundError(f"No se encontró el template: {template_path}")
 
     wb = load_workbook(filename=str(template_path))
-    ws = wb.active  # Hoja principal
-
-    # ---------------------------
-    # 0) Preparar espacio para metas (simular "Insert Copied Cells")
-    # ---------------------------
+    ws = wb.active
     numero_meta: List[str] = list(map(str, data.get("numero_meta", [])))
     nombre_meta: List[str] = list(map(str, data.get("nombre_meta", [])))
     total_metas = max(len(numero_meta), len(nombre_meta))
-    extra = max(0, total_metas - 1)  # metas adicionales
+    extra = max(0, total_metas - 1)
     shift = extra * 3
 
     if shift > 0:
         _move_down_from_row(ws, start_row=15, row_off=shift)
         merges_base = _get_block_merges(ws, 12, 14)
         for i in range(2, total_metas + 1):
-            dst_start = 12 + (i - 1) * 3  # 15, 18, 21...
+            dst_start = 12 + (i - 1) * 3
             _clone_block_styles_merges(ws, 12, 14, dst_start, merges_cache=merges_base)
-            # Replicar rótulos fijos (sin valores)
             lbl_num = _find_label_anchor(ws, 12, "NÚMERO DE META")
             lbl_nom = _find_label_anchor(ws, 13, "META DE CUATRIENIO")
             if lbl_num:
@@ -166,9 +145,6 @@ def fill_from_template(
             if lbl_nom:
                 _write(ws, f"{get_column_letter(lbl_nom[1])}{dst_start+1}", "META DE CUATRIENIO")
 
-    # ---------------------------
-    # 1) Datos básicos
-    # ---------------------------
     _write(ws, "D3",  data.get("nombre_proyecto", ""))
     _write(ws, "C5",  data.get("cod_id_mga", ""))
     _write(ws, "F5",  data.get("nombre_dependencia", ""))
@@ -178,14 +154,11 @@ def fill_from_template(
     _write(ws, "F9",  data.get("nombre_programa", ""))
     _write(ws, "C10", data.get("nombre_linea_estrategica", ""))
 
-    # ---------------------------
-    # 2) Variables SECTORIALES
-    # ---------------------------
     variables_sec = data.get("variables_sectorial", None)
     if variables_sec is None:
         variables_sec = data.get("variables", [])
 
-    for i, base_row in enumerate(range(26, 35)):
+    for i, base_row in enumerate(range(35, 44)):
         cell = f"H{base_row + shift}"
         v = variables_sec[i] if i < len(variables_sec) else False
         _write(ws, cell, "Sí" if bool(v) else "No")
@@ -193,7 +166,6 @@ def fill_from_template(
     # ---------------------------
     # 2.1) Variables TÉCNICAS
     # ---------------------------
-    import unicodedata
 
     def _norm(s: str) -> str:
         return "".join(c for c in unicodedata.normalize("NFKD", s) if not unicodedata.combining(c)).lower()
@@ -212,11 +184,10 @@ def fill_from_template(
     ws_tecnico = _get_sheet_fuzzy(wb, "Concepto Técnico General")
     variables_tec = data.get("variables_tecnico", [])
 
-    for i, base_row in enumerate(range(25, 38)):  # 25..37
+    for i, base_row in enumerate(range(34, 47)):
         cell = f"H{base_row}"
         v = variables_tec[i] if i < len(variables_tec) else False
         _write(ws_tecnico, cell, "Sí" if bool(v) else "No")
-
 
     # ---------------------------
     # 3) Políticas / Categorías / Subcategorías / Valor destinado 
@@ -228,24 +199,24 @@ def fill_from_template(
 
     nombre_politica = data.get("nombre_politica", []) or data.get("nombre_politica".replace("ó", "o"), [])
     p1, p2 = _pair(list(map(str, nombre_politica)))
-    _write(ws, f"E{38 + shift}", p1); _write(ws, f"G{38 + shift}", p2)
+    _write(ws, f"E{47 + shift}", p1); _write(ws, f"G{47 + shift}", p2)
 
     nombre_categoria = data.get("nombre_categoria", [])
     c1, c2 = _pair(list(map(str, nombre_categoria)))
-    _write(ws, f"E{39 + shift}", c1); _write(ws, f"G{39 + shift}", c2)
+    _write(ws, f"E{48 + shift}", c1); _write(ws, f"G{48 + shift}", c2)
 
     nombre_focalizacion = data.get("nombre_focalización", []) or data.get("nombre_focalizacion", [])
     f1, f2 = _pair(list(map(str, nombre_focalizacion)))
-    _write(ws, f"E{40 + shift}", f1); _write(ws, f"G{40 + shift}", f2)
+    _write(ws, f"E{49 + shift}", f1); _write(ws, f"G{49 + shift}", f2)
 
     valores = data.get("valor_destinado", [])
     v1 = valores[0] if len(valores) > 0 else None
     v2 = valores[1] if len(valores) > 1 else None
-    _write(ws, f"E{41 + shift}", v1 if v1 is not None else "")
-    _write(ws, f"G{41 + shift}", v2 if v2 is not None else "")
+    _write(ws, f"E{50 + shift}", v1 if v1 is not None else "")
+    _write(ws, f"G{50 + shift}", v2 if v2 is not None else "")
 
     # ---------------------------
-    # 4.5) Estructura financiera (resuelve casillas aquí)
+    # 4.5) Estructura financiera
     # ---------------------------
     ef_rows = data.get("estructura_financiera", [])
     if ef_rows:
@@ -253,8 +224,19 @@ def fill_from_template(
         while len(years) < 4:
             years.append(None)
 
-        ENT_ORDER = ["DEPARTAMENTO", "MUNICIPIO", "NACION", "OTRO"]
-        row_by_ent = {"DEPARTAMENTO": 18, "MUNICIPIO": 19, "NACION": 20, "OTRO": 21}
+        ENT_ORDER = ["PROPIOS", "SGP_LIBRE_INVERSION", "SGP_LIBRE_DESTINACION", "SGP_APSB", "SGP_EDUCACION", "SGP_ALIMENTACION_ESCOLAR", "SGP_CULTURA", "SGP_DEPORTE", "SGP_SALUD", "MUNICIPIO", "NACION", "OTROS"]
+        row_by_ent = {"PROPIOS": 19, 
+                      "SGP_LIBRE_INVERSION": 20, 
+                      "SGP_LIBRE_DESTINACION": 21, 
+                      "SGP_APSB": 22, 
+                      "SGP_EDUCACION": 23, 
+                      "SGP_ALIMENTACION_ESCOLAR": 24, 
+                      "SGP_CULTURA": 25, 
+                      "SGP_DEPORTE": 26, 
+                      "SGP_SALUD": 27,
+                      "MUNICIPIO": 28, 
+                      "NACION": 29, 
+                      "OTROS": 30}
         col_by_idx = {0: "C", 1: "E", 2: "F", 3: "G"}
 
         from decimal import Decimal
@@ -274,10 +256,20 @@ def fill_from_template(
                 val = lookup.get((y, ent), Decimal("0"))
                 _write(ws, dest, val)
     
-    # === Duplicar Estructura Financiera en hoja "Concepto Técnico General" (sin shift) ===
     if ef_rows:
-        ENT_ORDER = ["DEPARTAMENTO", "MUNICIPIO", "NACION", "OTRO"]
-        row_by_ent = {"DEPARTAMENTO": 17, "MUNICIPIO": 18, "NACION": 19, "OTRO": 20}
+        ENT_ORDER = ["PROPIOS", "SGP_LIBRE_INVERSION", "SGP_LIBRE_DESTINACION", "SGP_APSB", "SGP_EDUCACION", "SGP_ALIMENTACION_ESCOLAR", "SGP_CULTURA", "SGP_DEPORTE", "SGP_SALUD", "MUNICIPIO", "NACION", "OTROS"]
+        row_by_ent = {"PROPIOS": 18, 
+                      "SGP_LIBRE_INVERSION": 19, 
+                      "SGP_LIBRE_DESTINACION": 20, 
+                      "SGP_APSB": 21, 
+                      "SGP_EDUCACION": 22, 
+                      "SGP_ALIMENTACION_ESCOLAR": 23, 
+                      "SGP_CULTURA": 24, 
+                      "SGP_DEPORTE": 25, 
+                      "SGP_SALUD": 26,
+                      "MUNICIPIO": 27, 
+                      "NACION": 28, 
+                      "OTROS": 29}
         col_by_idx = {0: "C", 1: "E", 2: "F", 3: "G"}
 
         from decimal import Decimal
@@ -312,8 +304,8 @@ def fill_from_template(
         else:
             _write(ws, f"{get_column_letter(nom_val_col)}{dst_start + 1}", "")
 
-        # ---------------------------
-    # 4.5) Estructura financiera (resuelve casillas aquí)
+    # ---------------------------
+    # 4.5) Estructura financiera 
     # ---------------------------
     ef_rows = data.get("estructura_financiera", [])
     if ef_rows:
@@ -325,8 +317,19 @@ def fill_from_template(
         for yi, col in enumerate(header_cols):
             _write(ws, f"{col}{17 + shift}", years[yi] if years[yi] is not None else "")
 
-        ENT_ORDER = ["DEPARTAMENTO", "MUNICIPIO", "NACION", "OTRO"]
-        row_by_ent = {"DEPARTAMENTO": 18, "MUNICIPIO": 19, "NACION": 20, "OTRO": 21}
+        ENT_ORDER = ["PROPIOS", "SGP_LIBRE_INVERSION", "SGP_LIBRE_DESTINACION", "SGP_APSB", "SGP_EDUCACION", "SGP_ALIMENTACION_ESCOLAR", "SGP_CULTURA", "SGP_DEPORTE", "SGP_SALUD", "MUNICIPIO", "NACION", "OTROS"]
+        row_by_ent = {"PROPIOS": 19, 
+                      "SGP_LIBRE_INVERSION": 20, 
+                      "SGP_LIBRE_DESTINACION": 21, 
+                      "SGP_APSB": 22, 
+                      "SGP_EDUCACION": 23, 
+                      "SGP_ALIMENTACION_ESCOLAR": 24, 
+                      "SGP_CULTURA": 25, 
+                      "SGP_DEPORTE": 26, 
+                      "SGP_SALUD": 27,
+                      "MUNICIPIO": 28, 
+                      "NACION": 29, 
+                      "OTROS": 30}
         col_by_idx = {0: "C", 1: "E", 2: "F", 3: "G"}
 
         from decimal import Decimal
@@ -351,8 +354,19 @@ def fill_from_template(
         for yi, col in enumerate(header_cols):
             _write(ws_tecnico, f"{col}{16}", years[yi] if years[yi] is not None else "")
 
-        ENT_ORDER = ["DEPARTAMENTO", "MUNICIPIO", "NACION", "OTRO"]
-        row_by_ent = {"DEPARTAMENTO": 17, "MUNICIPIO": 18, "NACION": 19, "OTRO": 20}
+        ENT_ORDER = ["PROPIOS", "SGP_LIBRE_INVERSION", "SGP_LIBRE_DESTINACION", "SGP_APSB", "SGP_EDUCACION", "SGP_ALIMENTACION_ESCOLAR", "SGP_CULTURA", "SGP_DEPORTE", "SGP_SALUD", "MUNICIPIO", "NACION", "OTROS"]
+        row_by_ent = {"PROPIOS": 18, 
+                      "SGP_LIBRE_INVERSION": 19, 
+                      "SGP_LIBRE_DESTINACION": 20, 
+                      "SGP_APSB": 21, 
+                      "SGP_EDUCACION": 22, 
+                      "SGP_ALIMENTACION_ESCOLAR": 23, 
+                      "SGP_CULTURA": 24, 
+                      "SGP_DEPORTE": 25, 
+                      "SGP_SALUD": 26,
+                      "MUNICIPIO": 27, 
+                      "NACION": 28, 
+                      "OTROS": 29}
         col_by_idx = {0: "C", 1: "E", 2: "F", 3: "G"}
 
         from decimal import Decimal
@@ -395,15 +409,89 @@ def fill_from_template(
         _write(ws_tecnico, f"{get_column_letter(nom_val2_col)}{dst_start2 + 1}",
                nombre_meta[i - 1] if i - 1 < len(nombre_meta) else "")
 
-
-
     # ---------------------------
     # 5) Guardar
     # ---------------------------
     out_dir = output_dir or base_dir
     out_dir.mkdir(parents=True, exist_ok=True)
     n = force_index if force_index is not None else _next_sequential_index(out_dir)
-    out_path = out_dir / OUTPUT_PATTERN.format(n)
+    out_path = out_dir / OUTPUT_CONCEPTO.format(n)
+
+    wb.save(str(out_path))
+    return out_path
+
+def fill_cadena_valor(base_dir: Path, data: dict, force_index: Optional[int] = None, output_dir: Optional[Path] = None) -> Path:
+    template = base_dir / TEMPLATE_CADENA
+    wb = load_workbook(str(template))
+    ws = wb.active
+
+    _write(ws, "B2", data.get("nombre_proyecto", ""))
+    _write(ws, "N2", data.get("cod_id_mga", ""))
+    _write(ws, "A21", data.get("fecha_actual", ""))
+
+    out_dir = output_dir or base_dir
+    out_dir.mkdir(parents=True, exist_ok=True)
+    n = force_index if force_index is not None else _next_sequential_index(out_dir)
+    out_path = out_dir / OUTPUT_CADENA.format(n)
+
+    wb.save(str(out_path))
+    return out_path
+
+def fill_viabilidad_dependencias(base_dir: Path, data: dict, force_index: Optional[int] = None, output_dir: Optional[Path] = None) -> Path:
+    template = base_dir / TEMPLATE_VIABILIDAD
+    wb = load_workbook(str(template))
+    ws = wb.active
+
+    _write(ws, "G3", data.get("dependencia", ""))
+    _write(ws, "G5", data.get("nombre_proyecto", ""))
+    _write(ws, "G6", data.get("cod_id_mga", ""))
+
+    anios = data.get("anios", [])
+    for i, c in enumerate(["D9", "G9", "J9", "M9"]):
+        if i < len(anios):
+            _write(ws, c, anios[i])
+
+    ent_row = {
+        "PROPIOS": 11, "SGP_LIBRE_INVERSION": 12, "SGP_LIBRE_DESTINACION": 13, "SGP_APSB": 14,
+        "SGP_EDUCACION": 15, "SGP_ALIMENTACION_ESCOLAR": 16, "SGP_CULTURA": 17, "SGP_DEPORTE": 18,
+        "SGP_SALUD": 19, "MUNICIPIO": 20, "NACION": 21, "OTROS": 22,
+    }
+    col_map = {0: "D", 1: "G", 2: "J", 3: "M"}
+    lookup = data.get("estructura_financiera", {})
+
+    for yi, anio in enumerate(anios):
+        for ent, row in ent_row.items():
+            val = lookup.get((anio, ent), 0)
+            _write(ws, f"{col_map[yi]}{row}", val)
+    
+    ids_sel = set(int(x) for x in data.get("viabilidades_ids", data.get("viabilidades", [])) if x)
+    id_to_row = data.get("viabilidad_id_to_row") or {}
+    for i in range(1, 7):
+        id_to_row.setdefault(i, 32 + i)
+    for r in range(33, 39):
+        _write(ws, f"S{r}", "NO")
+    for vid in ids_sel:
+        r = id_to_row.get(vid)
+        if r and 33 <= r <= 38:
+            _write(ws, f"S{r}", "SI")
+
+    funcs = data.get("funcionarios", {})
+    for itv, f in funcs.items():
+        if itv == 1:
+            _write(ws, "B41", f"Funcionario que certifica viabilidad técnica:\nNombre: {f.nombre}\nCargo: {f.cargo}")
+        elif itv == 2:
+            _write(ws, "B42", f"Funcionario que certifica viabilidad jurídica:\nNombre: {f.nombre}\nCargo: {f.cargo}")
+        elif itv == 3:
+            _write(ws, "B43", f"Funcionario que certifica viabilidad financiera:\nNombre: {f.nombre}\nCargo: {f.cargo}")
+
+    _write(ws, "E48", data.get("nombre_secretario", ""))
+    _write(ws, "E49", data.get("dependencia", ""))
+    _write(ws, "E50", data.get("fecha_actual", ""))
+
+    out_dir = output_dir or base_dir
+    out_dir.mkdir(parents=True, exist_ok=True)
+    n = force_index if force_index is not None else _next_sequential_index(out_dir)
+    out_path = out_dir / OUTPUT_VIABILIDAD.format(n)
 
     wb.save(str(out_path))
     return out_path

@@ -16,9 +16,10 @@ from Backend.models import (
     Politicas as PoliticasRel,
     Categorias as CategoriasRel,
     Subcategorias as SubcategoriasRel,
-    EstructuraFinanciera, Politica, Categoria, Subcategoria, PeriodoLema
+    EstructuraFinanciera, Politica, Categoria, Subcategoria, PeriodoLema,
+    Viabilidad, Viabilidades, FuncionarioViabilidad
 )
-from Backend.services.excel_fill import fill_from_template
+from Backend.services.excel_fill import fill_from_template, fill_viabilidad_dependencias, fill_cadena_valor
 from Backend.services.word_fill import fill_docx
 from num2words import num2words as n2w
 
@@ -50,7 +51,6 @@ def _now_bogota() -> datetime:
         return datetime.now(ZoneInfo("America/Bogota"))
     except Exception:
         return datetime.now()
-
 
 # =========================
 # Carga base (común) desde BD
@@ -163,7 +163,6 @@ def _fetch_base_context(db: Session, form_id: int) -> dict:
 
     return base
 
-
 # =========================
 # EXCELS (uno por función)
 # =========================
@@ -174,15 +173,6 @@ def excel_concepto_tecnico_sectorial(db: Session, form_id: int) -> Tuple[BytesIO
     bio = BytesIO(out_path.read_bytes())
     bio.seek(0)
     return bio, out_path.name
-
-def excel_cadena_valor(db: Session, form_id: int) -> Tuple[BytesIO, str]:
-    # Placeholder para segundo Excel (cuando exista plantilla específica)
-    raise NotImplementedError("Plantilla de Cadena de Valor aún no implementada.")
-
-def excel_viabilidad_dependencias(db: Session, form_id: int) -> Tuple[BytesIO, str]:
-    # Placeholder para tercer Excel (cuando exista plantilla específica)
-    raise NotImplementedError("Plantilla de Viabilidad por Dependencias aún no implementada.")
-
 
 def _context_excel_concepto(base: Dict[str, object]) -> Dict[str, object]:
     metas = base.get("metas", [])
@@ -248,14 +238,11 @@ def word_carta(db: Session, form_id: int) -> Tuple[BytesIO, str]:
 def word_cert_precios(db: Session, form_id: int) -> Tuple[BytesIO, str]:
     base = _fetch_base_context(db, form_id)
     ctx = _context_word_common(base)
-    # Si este formato no usa metas ni EF, NO las inyectamos:
-    # (agrega aquí solo lo que el doc realmente usa)
     return _render_word("cert_precios", form_id, ctx)
 
 def word_no_doble_cofin(db: Session, form_id: int) -> Tuple[BytesIO, str]:
     base = _fetch_base_context(db, form_id)
     ctx = _context_word_common(base)
-    # Si este formato requiere un texto/firmas/fechas, ya vienen en ctx común.
     return _render_word("no_doble_cofin", form_id, ctx)
 
 
@@ -397,13 +384,6 @@ def _render_word(key: str, form_id: int, context: Dict[str, object]) -> Tuple[By
     bio.seek(0)
     return bio, out_path.name
 
-
-# =========================
-# COMPAT: wrappers antiguos
-# =========================
-def excel_formulario(db: Session, form_id: int) -> Tuple[BytesIO, str]:
-    return excel_concepto_tecnico_sectorial(db, form_id)
-
 def _persona_por_rol(db: Session, rol: str) -> str:
     row = db.execute(text("SELECT nombre FROM personas WHERE LOWER(rol)=LOWER(:r) LIMIT 1"), {"r": rol}).first()
     return row[0] if row else ""
@@ -416,3 +396,59 @@ def word_formulario(db: Session, form_id: int, doc: str, extras: Optional[Dict[s
     if doc == "no_doble_cofin":
         return word_no_doble_cofin(db, form_id)
     raise ValueError("Documento no soportado")
+
+def excel_cadena_valor(db: Session, form_id: int) -> Tuple[BytesIO, str]:
+    base_dir = Path(__file__).resolve().parents[2]
+    base = _fetch_base_context(db, form_id)
+    now = _now_bogota()
+
+    data = {
+        "nombre_proyecto": base["nombre_proyecto"],
+        "cod_id_mga": base["cod_id_mga"],
+        "fecha_actual": f"{now.day} de {_spanish_month(now.month)} del {now.year}",
+    }
+
+    out_path = fill_cadena_valor(base_dir=base_dir, data=data)
+    bio = BytesIO(out_path.read_bytes())
+    bio.seek(0)
+    return bio, out_path.name
+
+def excel_viabilidad_dependencias(db: Session, form_id: int) -> Tuple[BytesIO, str]:
+    base_dir = Path(__file__).resolve().parents[2]
+    base = _fetch_base_context(db, form_id)
+    now = _now_bogota()
+
+    ef = base.get("estructura_financiera", [])
+    years = sorted({r["anio"] for r in ef if r.get("anio")})[:4]
+    while len(years) < 4: years.append(None)
+
+    ENT_ORDER = [
+        "PROPIOS", "SGP_LIBRE_INVERSION", "SGP_LIBRE_DESTINACION", "SGP_APSB",
+        "SGP_EDUCACION", "SGP_ALIMENTACION_ESCOLAR", "SGP_CULTURA",
+        "SGP_DEPORTE", "SGP_SALUD", "MUNICIPIO", "NACION", "OTROS"
+    ]
+    lookup = {(r["anio"], r["entidad"].strip().upper()): r["valor"] for r in ef if r.get("entidad")}
+
+    viabilidades = [v.id for v in db.query(Viabilidad)
+    .join(Viabilidades, Viabilidades.id_viabilidad == Viabilidad.id)
+    .filter(Viabilidades.id_formulario == form_id)
+    .all()]
+    funcs = {f.id_tipo_viabilidad: f for f in db.query(FuncionarioViabilidad)
+        .filter(FuncionarioViabilidad.id_formulario == form_id).all()}
+
+    data = {
+        "dependencia": base["nombre_dependencia"],
+        "nombre_proyecto": base["nombre_proyecto"],
+        "cod_id_mga": base["cod_id_mga"],
+        "anios": years,
+        "estructura_financiera": lookup,
+        "viabilidades": viabilidades,
+        "funcionarios": funcs,
+        "nombre_secretario": base["nombre_secretario"],
+        "fecha_actual": f"{now.day} de {_spanish_month(now.month)} del {now.year}",
+    }
+
+    out_path = fill_viabilidad_dependencias(base_dir=base_dir, data=data)
+    bio = BytesIO(out_path.read_bytes())
+    bio.seek(0)
+    return bio, out_path.name

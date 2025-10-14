@@ -17,7 +17,7 @@ def get_db():
 @router.get("/excel/concepto-tecnico-sectorial/{form_id}")
 def descargar_excel_concepto_tecnico_sectorial(form_id: int, db: Session = Depends(get_db)):
     try:
-        bio, filename = descarga_service.excel_formulario(db, form_id)
+        bio, filename = descarga_service.excel_concepto_tecnico_sectorial(db, form_id)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
@@ -35,7 +35,7 @@ def descargar_excel_concepto_tecnico_sectorial(form_id: int, db: Session = Depen
 @router.get("/excel/cadena-valor/{form_id}")
 def descargar_excel_cadena_valor(form_id: int, db: Session = Depends(get_db)):
     try:
-        bio, filename = descarga_service.excel_formulario(db, form_id)
+        bio, filename = descarga_service.excel_cadena_valor(db, form_id)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
@@ -53,7 +53,7 @@ def descargar_excel_cadena_valor(form_id: int, db: Session = Depends(get_db)):
 @router.get("/excel/viabilidad-dependencias/{form_id}")
 def descargar_excel_viabilidad_dependencias(form_id: int, db: Session = Depends(get_db)):
     try:
-        bio, filename = descarga_service.excel_formulario(db, form_id)
+        bio, filename = descarga_service.excel_viabilidad_dependencias(db, form_id)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:

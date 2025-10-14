@@ -72,11 +72,10 @@ def _replace_text(text: str, lookup: Dict[str, str]) -> str:
         raw_fmt = m.group(2)
         nk = _norm_key(raw_key)
         if nk not in lookup:
-            return m.group(0)  # deja el placeholder si no existe
+            return m.group(0)
         val = lookup[nk]
         if raw_fmt and raw_fmt in _FORMATTERS:
             try:
-                # intenta castear a numero cuando aplica
                 num_val = Decimal(val.replace(".", "").replace("$", "").replace(",", "."))
             except Exception:
                 num_val = val
