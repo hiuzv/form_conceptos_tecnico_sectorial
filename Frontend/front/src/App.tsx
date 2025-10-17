@@ -11,6 +11,24 @@ type ID = number;
 interface Opcion { id: ID; nombre: string; codigo?: number | null; }
 type EntidadFin = "DEPARTAMENTO" | "PROPIOS" | "SGP_LIBRE_INVERSION" | "SGP_LIBRE_DESTINACION" | "SGP_APSB" | "SGP_EDUCACION" | "SGP_ALIMENTACION_ESCOLAR" | "SGP_CULTURA" | "SGP_DEPORTE" | "SGP_SALUD" | "MUNICIPIO" | "NACION" | "OTROS";
 
+const isSGP = (e: EntidadFin) => e.startsWith("SGP_");
+
+function uiNumber(raw: string | undefined) {
+  const n = parseDecimal2(raw ?? "");
+  return n ?? 0;
+}
+
+function calcDepartamentoForYear(efUI: Record<string,string|undefined>, y:number) {
+  const propios = uiNumber(efUI[keyFin(y, "PROPIOS")]);
+  const sgps = [
+    "SGP_LIBRE_INVERSION","SGP_LIBRE_DESTINACION","SGP_APSB",
+    "SGP_EDUCACION","SGP_ALIMENTACION_ESCOLAR","SGP_CULTURA",
+    "SGP_DEPORTE","SGP_SALUD",
+  ] as EntidadFin[];
+  const sumSgps = sgps.reduce((a, ent) => a + uiNumber(efUI[keyFin(y, ent)]), 0);
+  return round2(propios + sumSgps);
+}
+
 const ENTIDADES: EntidadFin[] = ["DEPARTAMENTO", "PROPIOS", "SGP_LIBRE_INVERSION", "SGP_LIBRE_DESTINACION", "SGP_APSB", "SGP_EDUCACION", "SGP_ALIMENTACION_ESCOLAR", "SGP_CULTURA", "SGP_DEPORTE", "SGP_SALUD", "MUNICIPIO", "NACION", "OTROS"];
 const API_BASE_DEFAULT = "http://localhost:8000";
 
@@ -242,12 +260,12 @@ export default function App() {
   const totalesAnio = useMemo(() => {
     const out: Record<number, number> = {};
     years.forEach(anio => {
-      let s = 0;
-      ENTIDADES.forEach(ent => {
-        const v = parseDecimal2(datos.estructura_financiera_ui[keyFin(anio, ent)] ?? "");
-        s += v ?? 0;
-      });
-      out[anio] = round2(s);
+      const sum =
+        calcDepartamentoForYear(datos.estructura_financiera_ui, anio) +
+        uiNumber(datos.estructura_financiera_ui[keyFin(anio, "MUNICIPIO")]) +
+        uiNumber(datos.estructura_financiera_ui[keyFin(anio, "NACION")]) +
+        uiNumber(datos.estructura_financiera_ui[keyFin(anio, "OTROS")] );
+      out[anio] = round2(sum);
     });
     return out;
   }, [datos.estructura_financiera_ui, years]);
@@ -354,10 +372,18 @@ export default function App() {
     const ys = getYears(state.anio_inicio);
     ys.forEach(anio => {
       ENTIDADES.forEach(ent => {
+        if (ent === "DEPARTAMENTO") return;
         const raw = state.estructura_financiera_ui[keyFin(anio, ent)] ?? "";
         const num = parseDecimal2(raw);
         estructura_financiera.push({ anio, entidad: ent, valor: num ?? 0 });
       });
+      const sumDept = estructura_financiera
+        .filter(r => r.anio === anio && (
+          r.entidad === "PROPIOS" ||
+          r.entidad.startsWith("SGP_")
+        ))
+        .reduce((a, b) => a + (b.valor ?? 0), 0);
+      estructura_financiera.push({ anio, entidad: "DEPARTAMENTO", valor: sumDept });
     });
 
     return {
@@ -435,13 +461,20 @@ export default function App() {
     if (which === 3) {
       const ys = getYears(datos.anio_inicio);
       const filas: Array<{anio:number; entidad:EntidadFin; valor:number}> = [];
-      ys.forEach(anio => ENTIDADES.forEach(ent => {
-        const raw = datos.estructura_financiera_ui[keyFin(anio, ent)] ?? "";
-        const num = parseDecimal2(raw) ?? 0;
-        filas.push({ anio, entidad: ent, valor: num });
-      }));
+
+      ys.forEach(anio => {
+        ENTIDADES.forEach(ent => {
+          if (ent === "DEPARTAMENTO") return;
+          const raw = datos.estructura_financiera_ui[keyFin(anio, ent)] ?? "";
+          const num = parseDecimal2(raw) ?? 0;
+          filas.push({ anio, entidad: ent, valor: num });
+        });
+        const dep = calcDepartamentoForYear(datos.estructura_financiera_ui, anio);
+        filas.push({ anio, entidad: "DEPARTAMENTO", valor: dep });
+      });
       await fetch(`${API_BASE_DEFAULT}/proyecto/formulario/${id}/estructura-financiera`, {
-        method:"PUT", headers:{"Content-Type":"application/json"},
+        method:"PUT",
+        headers:{"Content-Type":"application/json"},
         body: JSON.stringify({ filas }),
       });
     }
@@ -559,6 +592,18 @@ export default function App() {
       const varsTecSel = (r.variables_tecnico || r.variables_tecnicas || []).map((v: any) => Number(v.id ?? v.id_variable ?? v.variable_id)).filter(Number.isFinite);
       const viaSel = (r.viabilidades || []).map((v:any)=> Number(v.id ?? v.id_viabilidad ?? v.viabilidad_id)).filter(Number.isFinite);
       const funcs = Object.fromEntries((r.funcionarios_viabilidad || []).map((f:any) => [Number(f.id_tipo_viabilidad), { nombre: String(f.nombre||""), cargo: String(f.cargo||"") }]));
+      const politRows: PoliticaFila[] = (() => {
+        const src = Array.isArray(r.politicas) ? r.politicas : [];
+        const rows = src.slice(0, 2).map((p: any) => ({
+          id_politica: Number(p.id ?? p.id_politica ?? 0) || null,
+          id_categoria: null,
+          id_subcategoria: null,
+          valor_destinado: Number(p.valor_destinado ?? 0),
+          opciones_categorias: [],
+          opciones_subcategorias: [],
+        }));
+        return rows.length ? rows : [{ id_politica: null, id_categoria: null, id_subcategoria: null, valor_destinado: 0 }];
+      })();
 
       setViabilidadesSel(viaSel);
       setFuncionariosViab(funcs);
@@ -578,6 +623,7 @@ export default function App() {
           cantidad_beneficiarios: r.cantidad_beneficiarios ?? prev.datos_basicos.cantidad_beneficiarios ?? 0,
         },
         metas_sel: metasSel,
+        politicas: politRows,
         variables_sectorial_sel: varsSecSel,
         variables_tecnico_sel: varsTecSel,
         variables_sel: Array.from(new Set([...varsSecSel, ...varsTecSel])),
@@ -948,40 +994,98 @@ export default function App() {
                       </tr>
                     </thead>
                     <tbody>
-                      {ENTIDADES.map(ent => (
-                        <tr key={ent} className="border-t">
-                          <td className="px-3 py-2 font-medium">{ent === "NACION" ? "Nación" : ent.charAt(0) + ent.slice(1).toLowerCase()}</td>
-                          {years.map(y => {
-                            const k = keyFin(y, ent);
-                            const raw = datos.estructura_financiera_ui[k] ?? "";
-                            return (
-                              <td key={k} className="px-2 py-1">
-                                <input
-                                  type="text"
-                                  inputMode="decimal"
-                                  placeholder="0,00"
-                                  className="w-full rounded-md border px-2 py-1 text-right"
-                                  value={raw}
-                                  onChange={(e)=> setDatos(p=> ({ ...p, estructura_financiera_ui: { ...p.estructura_financiera_ui, [k]: e.target.value } }))}
-                                  onBlur={(e)=> {
-                                    const n = parseDecimal2(e.target.value);
-                                    setDatos(p=> ({
-                                      ...p,
-                                      estructura_financiera_ui: {
-                                        ...p.estructura_financiera_ui,
-                                        [k]: n === null ? (e.target.value ?? "") : (n === 0 ? "" : n.toFixed(2))
-                                      }
-                                    }));
-                                  }}
-                                />
-                              </td>
-                            );
-                          })}
-                          <td className="px-3 py-2 text-right font-semibold">
-                            {toMoney(years.reduce((s,y)=> s + (parseDecimal2(datos.estructura_financiera_ui[keyFin(y, ent)] ?? "") ?? 0), 0))}
-                          </td>
-                        </tr>
-                      ))}
+                      {ENTIDADES.map(ent => {
+                        const isMain = ["DEPARTAMENTO", "NACION", "MUNICIPIO", "OTROS"].includes(ent);
+                        const isSub = ent === "PROPIOS" || ent.startsWith("SGP_");
+
+                        return (
+                          <tr key={ent} className="border-t align-top">
+                            <td
+                              className={cx(
+                                "px-3 py-2",
+                                isMain && "font-bold",
+                                isSub && "italic text-right pr-6"
+                              )}
+                            >
+                              {ent === "NACION" ? "Nación" : ent.charAt(0) + ent.slice(1).toLowerCase()}
+                            </td>
+
+                            {years.map(y => {
+                              const k = keyFin(y, ent);
+
+                              if (ent === "DEPARTAMENTO") {
+                                const depVal = calcDepartamentoForYear(datos.estructura_financiera_ui, y);
+                                return (
+                                  <td key={k} className="px-2 py-1">
+                                    <input
+                                      type="text"
+                                      className="w-full rounded-md border px-2 py-1 text-right bg-slate-100 text-slate-700 font-bold"
+                                      value={depVal === 0 ? "" : depVal.toFixed(2)}
+                                      disabled
+                                      readOnly
+                                      title="Valor calculado: PROPIOS + todos los SGP"
+                                    />
+                                  </td>
+                                );
+                              }
+
+                              const raw = datos.estructura_financiera_ui[k] ?? "";
+                              return (
+                                <td key={k} className="px-2 py-1">
+                                  <input
+                                    type="text"
+                                    inputMode="decimal"
+                                    placeholder="0,00"
+                                    className={cx(
+                                      "w-full rounded-md border px-2 py-1 text-right",
+                                      isSub && "italic text-right pr-6"
+                                    )}
+                                    value={raw}
+                                    onChange={e =>
+                                      setDatos(p => ({
+                                        ...p,
+                                        estructura_financiera_ui: {
+                                          ...p.estructura_financiera_ui,
+                                          [k]: e.target.value,
+                                        },
+                                      }))
+                                    }
+                                    onBlur={e => {
+                                      const n = parseDecimal2(e.target.value);
+                                      setDatos(p => ({
+                                        ...p,
+                                        estructura_financiera_ui: {
+                                          ...p.estructura_financiera_ui,
+                                          [k]:
+                                            n === null
+                                              ? e.target.value ?? ""
+                                              : n === 0
+                                              ? ""
+                                              : n.toFixed(2),
+                                        },
+                                      }));
+                                    }}
+                                  />
+                                </td>
+                              );
+                            })}
+                            <td className={cx("px-3 py-2 text-right", isMain && "font-bold", isSub && "italic")}>
+                              {toMoney(
+                                years.reduce((s, y) => {
+                                  if (ent === "DEPARTAMENTO") {
+                                    return s + calcDepartamentoForYear(datos.estructura_financiera_ui, y);
+                                  }
+                                  return (
+                                    s +
+                                    (parseDecimal2(datos.estructura_financiera_ui[keyFin(y, ent)] ?? "") ??
+                                      0)
+                                  );
+                                }, 0)
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
                       <tr className="border-t bg-slate-50">
                         <td className="px-3 py-2 font-bold">Total</td>
                         {years.map(y=> (<td key={`tot-${y}`} className="px-3 py-2 text-right font-bold">{toMoney(totalesAnio[y] ?? 0)}</td>))}

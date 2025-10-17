@@ -2,7 +2,7 @@ from __future__ import annotations
 import re
 import unicodedata
 from pathlib import Path
-from typing import Dict, Iterable, Optional, Tuple, Callable
+from typing import Dict, Optional, Callable
 from decimal import Decimal
 from docx import Document
 

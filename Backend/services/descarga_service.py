@@ -22,10 +22,19 @@ from Backend.models import (
 from Backend.services.excel_fill import fill_from_template, fill_viabilidad_dependencias, fill_cadena_valor
 from Backend.services.word_fill import fill_docx
 from num2words import num2words as n2w
+from decimal import Decimal, ROUND_HALF_UP
 
 # =========================
 # Utilidades de fecha/mes
 # =========================
+
+def numero_a_texto(valor: float) -> str:
+    try:
+        n = int(Decimal(str(valor)).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+    except Exception:
+        n = int(valor or 0)
+    return f"{n2w(n, lang='es').capitalize()} pesos M/cte."
+
 def _spanish_month(m: int) -> str:
     names = [
         "", "enero", "febrero", "marzo", "abril", "mayo", "junio",
@@ -64,10 +73,10 @@ def _fetch_base_context(db: Session, form_id: int) -> dict:
             Programa.codigo_programa, Programa.nombre_programa,
             Sector.codigo_sector, Sector.nombre_sector,
         )
-        .join(Dependencia, Dependencia.id == Formulario.id_dependencia)
-        .join(LineaEstrategica, LineaEstrategica.id == Formulario.id_linea_estrategica)
-        .join(Sector, Sector.id == Formulario.id_sector)
-        .join(Programa, Programa.id == Formulario.id_programa)
+        .outerjoin(Dependencia, Dependencia.id == Formulario.id_dependencia)
+        .outerjoin(LineaEstrategica, LineaEstrategica.id == Formulario.id_linea_estrategica)
+        .outerjoin(Sector, Sector.id == Formulario.id_sector)
+        .outerjoin(Programa, Programa.id == Formulario.id_programa)
         .filter(Formulario.id == form_id)
         .one_or_none()
     )
@@ -75,18 +84,17 @@ def _fetch_base_context(db: Session, form_id: int) -> dict:
         raise ValueError("Formulario no encontrado")
 
     form, dep_nom, linea_nom, prog_cod, prog_nom, sec_cod, sec_nom = row
-
     base = {
         "form_id": form.id,
         "nombre_proyecto": form.nombre_proyecto,
         "cod_id_mga": form.cod_id_mga,
         "id_dependencia": form.id_dependencia,
-        "nombre_dependencia": dep_nom,
-        "codigo_sector": sec_cod,
-        "nombre_sector": sec_nom,
-        "codigo_programa": prog_cod,
-        "nombre_programa": prog_nom,
-        "nombre_linea_estrategica": linea_nom,
+        "nombre_dependencia": dep_nom or "",
+        "codigo_sector": sec_cod or "",
+        "nombre_sector": sec_nom or "",
+        "codigo_programa": prog_cod or "",
+        "nombre_programa": prog_nom or "",
+        "nombre_linea_estrategica": linea_nom or "",
         "nombre_secretario": form.nombre_secretario,
         "oficina_secretario": getattr(form, "oficina_secretario", None),
         "duracion_proyecto": getattr(form, "duracion_proyecto", None),
@@ -232,7 +240,7 @@ def word_carta(db: Session, form_id: int) -> Tuple[BytesIO, str]:
     else:
         ctx["Periodo"] = ""
         ctx["lema_periodo"] = ""
-    _merge_ctx_carta(ctx, base)
+    ctx.update(_merge_ctx_carta(db, form_id))
     return _render_word("carta", form_id, ctx)
 
 def word_cert_precios(db: Session, form_id: int) -> Tuple[BytesIO, str]:
@@ -294,84 +302,128 @@ def _context_word_common(base: Dict[str, object]) -> Dict[str, object]:
 
     return ctx
 
-def _merge_ctx_carta(ctx: Dict[str, object], base: Dict[str, object]) -> None:
-    ef_rows = list(base.get("estructura_financiera", []))
-    ENT_ORDER = ["DEPARTAMENTO", "PROPIOS", "SGP_LIBRE_INVERSION", "SGP_LIBRE_DESTINACION", "SGP_APSB", "SGP_EDUCACION", "SGP_ALIMENTACION_ESCOLAR", "SGP_CULTURA", "SGP_DEPORTE", "SGP_SALUD", "MUNICIPIO", "NACION", "OTROS"]
-    years = sorted({r.get("anio") for r in ef_rows if r.get("anio") is not None})[:4]
-    while len(years) < 4:
-        years.append(None)
+def _fmt(v: float) -> str:
+    return "" if abs(v) < 0.005 else f"{v:.2f}"
 
-    for i, y in enumerate(years, start=1):
-        ctx[f"anio_{i}"] = ("" if y is None else y)
+def _merge_ctx_carta(db, form_id: int) -> dict:
+    # --- 1) Cargar estructura financiera desde BD ---
+    rows = db.execute(
+        text("""
+            SELECT anio, entidad, COALESCE(valor,0)::numeric
+            FROM estructura_financiera
+            WHERE id_formulario = :fid
+        """),
+        {"fid": form_id}
+    ).fetchall()
 
-    lookup: Dict[tuple, Decimal] = {}
-    no_year_by_ent: Dict[str, list[Decimal]] = {e: [] for e in ENT_ORDER}
-
-    for r in ef_rows:
-        y = r.get("anio")
-        e = (r.get("entidad") or "").strip().upper()
-        if e not in ENT_ORDER:
-            continue
-        v = Decimal(str(r.get("valor") or 0))
-        if y is None:
-            no_year_by_ent[e].append(v)
+    # --- 2) Determinar los 4 años ---
+    ys = sorted({int(r[0]) for r in rows})
+    if len(ys) != 4:
+        if ys:
+            y0 = min(ys)
+            ys = [y0, y0 + 1, y0 + 2, y0 + 3]
         else:
-            lookup[(y, e)] = lookup.get((y, e), Decimal("0")) + v
+            ys = [2025, 2026, 2027, 2028]
+    y1, y2, y3, y4 = ys
 
-    for i in range(1, 5):
-        y = years[i - 1]
-        for e in ENT_ORDER:
-            if y is not None:
-                val = lookup.get((y, e), Decimal("0"))
-            else:
-                lst = no_year_by_ent.get(e, [])
-                val = lst[i - 1] if i - 1 < len(lst) else Decimal("0")
+    # --- 3) Inicializar contexto base con los años ---
+    ctx = {
+        "anio_1": str(y1),
+        "anio_2": str(y2),
+        "anio_3": str(y3),
+        "anio_4": str(y4),
+    }
 
-            ctx[f"valor_{e.lower()}_{i}"] = val
+    # --- 4) Normalizar datos por año/entidad ---
+    by_year = {y: {} for y in ys}
+    for y, ent, val in rows:
+        y = int(y)
+        ent = str(ent or "").strip().upper()
+        by_year.setdefault(y, {})[ent] = float(val or 0.0)
 
-    totals_ent: Dict[str, Decimal] = {e: Decimal("0") for e in ENT_ORDER}
-    totals_year: list[Decimal] = [Decimal("0")] * 4
+    def _val(y, k):
+        return float(by_year.get(y, {}).get(k, 0.0))
 
-    for i in range(1, 5):
-        tot_y = sum((ctx.get(f"valor_{e.lower()}_{i}", Decimal("0")) for e in ENT_ORDER), Decimal("0"))
-        totals_year[i - 1] = tot_y
-        for e in ENT_ORDER:
-            totals_ent[e] += ctx.get(f"valor_{e.lower()}_{i}", Decimal("0"))
+    # --- 5) Calcular DEPARTAMENTO = PROPIOS + todos los SGP_* ---
+    SGP_KEYS = [
+        "SGP_LIBRE_INVERSION", "SGP_LIBRE_DESTINACION", "SGP_APSB",
+        "SGP_EDUCACION", "SGP_ALIMENTACION_ESCOLAR", "SGP_CULTURA",
+        "SGP_DEPORTE", "SGP_SALUD"
+    ]
+    dep_por_anio = {y: _val(y, "PROPIOS") + sum(_val(y, k) for k in SGP_KEYS) for y in ys}
 
-    ctx["valor_sum_departamento"] = totals_ent["DEPARTAMENTO"]
-    ctx["valor_sum_propios"] = totals_ent["PROPIOS"]
-    ctx["valor_sum_sgp_libre_inversion"] = totals_ent["SGP_LIBRE_INVERSION"]
-    ctx["valor_sum_sgp_libre_destinacion"] = totals_ent["SGP_LIBRE_DESTINACION"]
-    ctx["valor_sum_sgp_apsb"] = totals_ent["SGP_APSB"]
-    ctx["valor_sum_sgp_educacion"] = totals_ent["SGP_EDUCACION"]
-    ctx["valor_sum_sgp_alimentacion_escolar"] = totals_ent["SGP_ALIMENTACION_ESCOLAR"]
-    ctx["valor_sum_sgp_cultura"] = totals_ent["SGP_CULTURA"]
-    ctx["valor_sum_sgp_deporte"] = totals_ent["SGP_DEPORTE"]
-    ctx["valor_sum_sgp_salud"] = totals_ent["SGP_SALUD"]
-    ctx["valor_sum_municipio"] = totals_ent["MUNICIPIO"]
-    ctx["valor_sum_nacion"] = totals_ent["NACION"]
-    ctx["valor_sum_otros"] = totals_ent["OTROS"]
-    
-    for e in ENT_ORDER:
-        ctx[f"total_{e.lower()}"] = totals_ent[e]
+    # --- 6) Totales por año (sin doble conteo) ---
+    tot_por_anio = {
+        y: dep_por_anio[y] + _val(y, "MUNICIPIO") + _val(y, "NACION") + _val(y, "OTROS")
+        for y in ys
+    }
 
-    for i, v in enumerate(totals_year, start=1):
-        ctx[f"valor_sum_periodo_{i}"] = v
-        ctx[f"total_anio_{i}"] = v
-    total_proyecto = sum(totals_year)
-    ctx["valor_sum_total"] = total_proyecto
+    def _sum_ent(k: str) -> float:
+        if k == "DEPARTAMENTO":
+            return sum(dep_por_anio[y] for y in ys)
+        return sum(_val(y, k) for y in ys)
 
-    try:
-        total_int = int(total_proyecto)
-    except Exception:
-        total_int = 0
-    ctx["costo_numero"] = total_int
-    ctx["costo_texto"]  = n2w(total_int, lang="es").capitalize() if total_int > 0 else ""
+    # --- 7) Departamento (derivado) ---
+    ctx["valor_departamento_1"] = _fmt(dep_por_anio[y1])
+    ctx["valor_departamento_2"] = _fmt(dep_por_anio[y2])
+    ctx["valor_departamento_3"] = _fmt(dep_por_anio[y3])
+    ctx["valor_departamento_4"] = _fmt(dep_por_anio[y4])
+    ctx["valor_sum_departamento"] = _fmt(_sum_ent("DEPARTAMENTO"))
 
-    metas = base.get("metas", []) or []
-    for i, m in enumerate(metas, start=1):
-        ctx[f"numero_meta_{i}"] = m.get("numero")
-        ctx[f"nombre_meta_{i}"] = m.get("nombre")
+    # --- 8) Propios ---
+    ctx["valor_propios_1"] = _fmt(_val(y1, "PROPIOS"))
+    ctx["valor_propios_2"] = _fmt(_val(y2, "PROPIOS"))
+    ctx["valor_propios_3"] = _fmt(_val(y3, "PROPIOS"))
+    ctx["valor_propios_4"] = _fmt(_val(y4, "PROPIOS"))
+    ctx["valor_sum_propios"] = _fmt(_sum_ent("PROPIOS"))
+
+    # --- 9) SGPs (corto + largo, por compatibilidad con tu plantilla) ---
+    sgp_name_map = {
+        "SGP_LIBRE_INVERSION":     ("sgp_inver",  "sgp_libre_inversion"),
+        "SGP_LIBRE_DESTINACION":   ("sgp_desti",  "sgp_libre_destinacion"),
+        "SGP_APSB":                ("sgp_apsb",   "sgp_apsb"),
+        "SGP_EDUCACION":           ("sgp_educa",  "sgp_educacion"),
+        "SGP_ALIMENTACION_ESCOLAR":("sgp_alimen", "sgp_alimentacion_escolar"),
+        "SGP_CULTURA":             ("sgp_cultura","sgp_cultura"),
+        "SGP_DEPORTE":             ("sgp_deporte","sgp_deporte"),
+        "SGP_SALUD":               ("sgp_salud",  "sgp_salud"),
+    }
+
+    for key, (alias_short, alias_long) in sgp_name_map.items():
+        v1, v2, v3, v4 = _val(y1, key), _val(y2, key), _val(y3, key), _val(y4, key)
+        for alias in [alias_short, alias_long]:
+            ctx[f"valor_{alias}_1"] = _fmt(v1)
+            ctx[f"valor_{alias}_2"] = _fmt(v2)
+            ctx[f"valor_{alias}_3"] = _fmt(v3)
+            ctx[f"valor_{alias}_4"] = _fmt(v4)
+            ctx[f"valor_sum_{alias}"] = _fmt(_sum_ent(key))
+
+    # Parche de typo: valor_sgp_inve_2 (sin r)
+    if "valor_sgp_inver_2" in ctx and "valor_sgp_inve_2" not in ctx:
+        ctx["valor_sgp_inve_2"] = ctx["valor_sgp_inver_2"]
+
+    # --- 10) Municipio / Nación / Otros ---
+    for key, alias in [("MUNICIPIO", "municipio"), ("NACION", "nacion"), ("OTROS", "otros")]:
+        ctx[f"valor_{alias}_1"] = _fmt(_val(y1, key))
+        ctx[f"valor_{alias}_2"] = _fmt(_val(y2, key))
+        ctx[f"valor_{alias}_3"] = _fmt(_val(y3, key))
+        ctx[f"valor_{alias}_4"] = _fmt(_val(y4, key))
+        ctx[f"valor_sum_{alias}"] = _fmt(_sum_ent(key))
+
+    # --- 11) Totales por periodo y general ---
+    ctx["valor_sum_periodo_1"] = _fmt(tot_por_anio[y1])
+    ctx["valor_sum_periodo_2"] = _fmt(tot_por_anio[y2])
+    ctx["valor_sum_periodo_3"] = _fmt(tot_por_anio[y3])
+    ctx["valor_sum_periodo_4"] = _fmt(tot_por_anio[y4])
+    total_general = sum(tot_por_anio[y] for y in ys)
+    ctx["valor_sum_total"] = _fmt(total_general)
+
+    # --- 12) Costo del proyecto (texto y número) ---
+    ctx["costo_numero"] = _fmt(total_general).replace(",", "")
+    ctx["costo_texto"] = numero_a_texto(total_general)
+
+    return ctx
+
 
 def _render_word(key: str, form_id: int, context: Dict[str, object]) -> Tuple[BytesIO, str]:
     if key not in TEMPLATE_MAP:
