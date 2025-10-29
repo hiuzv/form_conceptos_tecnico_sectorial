@@ -118,7 +118,7 @@ def crear_formulario(payload: schemas.FormularioCreate, db: Session = Depends(ge
         id_programa=form_db.id_programa,
         id_sector=form_db.id_sector,
         nombre_secretario=form_db.nombre_secretario,
-        oficina_secretario=getattr(form_db, "oficina_secretario", None) or "",
+        fuentes=getattr(form_db, "fuentes", None) or "",
         duracion_proyecto=getattr(form_db, "duracion_proyecto", None) or 0,
         cantidad_beneficiarios=getattr(form_db, "cantidad_beneficiarios", None) or 0,
         metas=[schemas.MetaRead(id=m.id, numero_meta=m.numero_meta, nombre_meta=m.nombre_meta) for m in metas_db],
@@ -156,7 +156,7 @@ def obtener_formulario(form_id: int, db: Session = Depends(get_db)):
         id_programa=form_db.id_programa or 0,
         id_sector=form_db.id_sector or 0,
         nombre_secretario=form_db.nombre_secretario or "",
-        oficina_secretario=getattr(form_db, "oficina_secretario", None) or "",
+        fuentes=getattr(form_db, "fuentes", None) or "",
         duracion_proyecto=getattr(form_db, "duracion_proyecto", None) or 0,
         cantidad_beneficiarios=getattr(form_db, "cantidad_beneficiarios", None) or 0,
         metas=[schemas.MetaRead(id=m.id, numero_meta=m.numero_meta, nombre_meta=m.nombre_meta) for m in metas_db] or [],
@@ -260,3 +260,51 @@ def upsert_funcionarios_viabilidad(form_id:int, body: schemas.FuncionariosViabil
     filas = getattr(body, "funcionarios", []) or []
     proyecto_service.replace_funcionarios_viabilidad(db, form_id, [f.dict() for f in filas])
     return obtener_formulario(form_id, db)
+
+@router.get("/formulario/{form_id}/variables-sectorial-respuestas", response_model=list[schemas.VarRespuestaRead])
+def get_vars_sec_resp(form_id:int, db:Session=Depends(get_db)):
+    form = proyecto_service.obtener_formulario(db, form_id)
+    if not form: raise HTTPException(404, "Formulario no encontrado")
+    cat = proyecto_service.listar_cat_variables_sectorial(db)
+    res = proyecto_service.leer_respuestas_sectorial(db, form_id)
+    out = []
+    for v in cat:
+        out.append(schemas.VarRespuestaRead(
+            id=v.id, nombre=v.nombre_variable, no_aplica=bool(v.no_aplica),
+            respuesta=res.get(v.id)
+        ))
+    return out
+
+@router.put("/formulario/{form_id}/variables-sectorial-respuestas")
+def put_vars_sec_resp(form_id:int, body:schemas.VarsRespuestaUpsertIn, db:Session=Depends(get_db)):
+    pares = [(int(x.id), (x.respuesta or "").upper()) for x in (body.respuestas or [])]
+    proyecto_service.upsert_respuestas_sectorial(db, form_id, pares)
+    return {"ok": True}
+
+@router.get("/formulario/{form_id}/variables-tecnico-respuestas", response_model=list[schemas.VarRespuestaRead])
+def get_vars_tec_resp(form_id:int, db:Session=Depends(get_db)):
+    form = proyecto_service.obtener_formulario(db, form_id)
+    if not form: raise HTTPException(404, "Formulario no encontrado")
+    cat = proyecto_service.listar_cat_variables_tecnico(db)
+    res = proyecto_service.leer_respuestas_tecnico(db, form_id)
+    return [schemas.VarRespuestaRead(id=v.id, nombre=v.nombre_variable, no_aplica=bool(v.no_aplica), respuesta=res.get(v.id)) for v in cat]
+
+@router.put("/formulario/{form_id}/variables-tecnico-respuestas")
+def put_vars_tec_resp(form_id:int, body:schemas.VarsRespuestaUpsertIn, db:Session=Depends(get_db)):
+    pares = [(int(x.id), (x.respuesta or "").upper()) for x in (body.respuestas or [])]
+    proyecto_service.upsert_respuestas_tecnico(db, form_id, pares)
+    return {"ok": True}
+
+@router.get("/formulario/{form_id}/viabilidades-respuestas", response_model=list[schemas.VarRespuestaRead])
+def get_viab_resp(form_id:int, db:Session=Depends(get_db)):
+    form = proyecto_service.obtener_formulario(db, form_id)
+    if not form: raise HTTPException(404, "Formulario no encontrado")
+    cat = proyecto_service.listar_cat_viabilidad(db)
+    res = proyecto_service.leer_respuestas_viab(db, form_id)
+    return [schemas.VarRespuestaRead(id=v.id, nombre=v.nombre, no_aplica=bool(v.no_aplica), respuesta=res.get(v.id)) for v in cat]
+
+@router.put("/formulario/{form_id}/viabilidades-respuestas")
+def put_viab_resp(form_id:int, body:schemas.VarsRespuestaUpsertIn, db:Session=Depends(get_db)):
+    pares = [(int(x.id), (x.respuesta or "").upper()) for x in (body.respuestas or [])]
+    proyecto_service.upsert_respuestas_viab(db, form_id, pares)
+    return {"ok": True}

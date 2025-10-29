@@ -41,7 +41,7 @@ interface DatosBasicosDB {
   id_programa: ID | null;
   id_sector: ID | null;
   nombre_secretario: string;
-  oficina_secretario: string;
+  fuentes: string;
   duracion_proyecto: number;
   cantidad_beneficiarios: number;
 }
@@ -154,6 +154,9 @@ export default function App() {
   const [viabilidadesSel, setViabilidadesSel] = useState<ID[]>([]);
   const [funcionariosViab, setFuncionariosViab] = useState<Record<number, {nombre:string; cargo:string}>>({});
   const firstFiltersRun = React.useRef(true);
+  const [varsSectorialResp, setVarsSectorialResp] = useState<VarResp[]>([]);
+  const [varsTecnicoResp, setVarsTecnicoResp]   = useState<VarResp[]>([]);
+  const [viabResp, setViabResp]                 = useState<VarResp[]>([]);
 
   const queryLista = async (resetPage=false) => {
     try {
@@ -179,6 +182,9 @@ export default function App() {
     }
   };
 
+  type Respuesta = "SI" | "NO" | "N/A" | "";
+  type VarResp = { id:number; nombre:string; no_aplica:boolean; respuesta?:Respuesta };
+  
   useEffect(() => { (async () => {
     try {
       const depsR = await fetchJson("/proyecto/dependencias");
@@ -239,7 +245,7 @@ export default function App() {
       id_programa: null,
       id_sector: null,
       nombre_secretario: "",
-      oficina_secretario: "",
+      fuentes: "",
       duracion_proyecto: 0,
       cantidad_beneficiarios: 0,
     },
@@ -272,6 +278,11 @@ export default function App() {
   const totalProyecto = useMemo(() => round2(years.reduce((acc, anio) => acc + (totalesAnio[anio] ?? 0), 0)), [years, totalesAnio]);
   const difProyectoPoliticas = useMemo(() => round2(totalProyecto - totalPoliticas), [totalProyecto, totalPoliticas]);
   const igualesProyectoPoliticas = numbersEqual(totalProyecto, totalPoliticas);
+  const varsSectorialRespSorted = useMemo(() => [...varsSectorialResp].sort((a,b) => a.id - b.id), [varsSectorialResp]);
+  const varsTecnicoRespSorted = useMemo(() => [...varsTecnicoResp].sort((a,b) => a.id - b.id), [varsTecnicoResp]);
+  const viabRespSorted = useMemo(() => [...viabResp].sort((a,b) => a.id - b.id), [viabResp]);
+  const tiposViabilidadSorted = useMemo(() => [...tiposViabilidad].sort((a,b) => a.id - b.id), [tiposViabilidad]);
+
 
   useEffect(() => {
     if (vista !== "form") return;
@@ -303,7 +314,8 @@ export default function App() {
     (async () => {
       try {
         const r = await fetchJson(`/proyecto/sectores?linea_id=${idLinea}`);
-        setSectores(sortOptions(normalizaFlex(r, ["nombre_sector", "nombre"], "codigo_sector")));
+        const raw = normalizaFlex(r, ["nombre_sector", "nombre"], "codigo_sector");
+        setSectores(sortOptions(raw).map(o => ({...o, nombre: (o.codigo != null ? `${o.codigo} - ${o.nombre}` : o.nombre)})));
       } catch (e) { console.error(e); setSectores([]); }
     })();
   }, [datos.datos_basicos.id_linea_estrategica]);
@@ -315,7 +327,8 @@ export default function App() {
     (async () => {
       try {
         const r = await fetchJson(`/proyecto/programas?sector_id=${idSector}`);
-        setProgramas(sortOptions(normalizaFlex(r, ["nombre_programa", "nombre"], "codigo_programa")));
+        const raw = normalizaFlex(r, ["nombre_programa", "nombre"], "codigo_programa");
+        setProgramas(sortOptions(raw).map(o => ({...o, nombre: (o.codigo != null ? `${o.codigo} - ${o.nombre}` : o.nombre)})));
       } catch (e) { console.error(e); setProgramas([]); }
     })();
   }, [datos.datos_basicos.id_sector]);
@@ -438,7 +451,7 @@ export default function App() {
         cod_id_mga: Number(datos.datos_basicos.cod_id_mga || 0),
         id_dependencia: datos.datos_basicos.id_dependencia,
         nombre_secretario: datos.datos_basicos.nombre_secretario ?? "",
-        oficina_secretario: datos.datos_basicos.oficina_secretario ?? "",
+        fuentes: datos.datos_basicos.fuentes ?? "",
         duracion_proyecto: Number(datos.datos_basicos.duracion_proyecto || 0),
         cantidad_beneficiarios: Number(datos.datos_basicos.cantidad_beneficiarios || 0),
       };
@@ -479,13 +492,23 @@ export default function App() {
       });
     }
     if (which === 4) {
-      await fetch(`${API_BASE_DEFAULT}/proyecto/formulario/${id}/variables-sectorial`, {
-        method:"PUT", headers:{"Content-Type":"application/json"},
-        body: JSON.stringify({ ids: payload.variables_sectorial }),
+      const id = await ensureFormId();
+      const bodySec = {
+        respuestas: varsSectorialResp
+          .filter(v => (v.respuesta ?? "") !== "")
+          .map(v => ({ id: v.id, respuesta: v.respuesta }))
+      };
+      await fetch(`${API_BASE_DEFAULT}/proyecto/formulario/${id}/variables-sectorial-respuestas`, {
+        method:"PUT", headers:{"Content-Type":"application/json"}, body: JSON.stringify(bodySec)
       });
-      await fetch(`${API_BASE_DEFAULT}/proyecto/formulario/${id}/variables-tecnico`, {
-        method:"PUT", headers:{"Content-Type":"application/json"},
-        body: JSON.stringify({ ids: payload.variables_tecnico }),
+
+      const bodyTec = {
+        respuestas: varsTecnicoResp
+          .filter(v => (v.respuesta ?? "") !== "")
+          .map(v => ({ id: v.id, respuesta: v.respuesta }))
+      };
+      await fetch(`${API_BASE_DEFAULT}/proyecto/formulario/${id}/variables-tecnico-respuestas`, {
+        method:"PUT", headers:{"Content-Type":"application/json"}, body: JSON.stringify(bodyTec)
       });
     }
     if (which === 5) {
@@ -503,11 +526,16 @@ export default function App() {
       });
     }
     if (which === 6) {
-      await fetch(`${API_BASE_DEFAULT}/proyecto/formulario/${id}/viabilidades`, {
-        method:"PUT", headers:{ "Content-Type":"application/json" },
-        body: JSON.stringify({ ids: viabilidadesSel }),
-      });
+      const id = await ensureFormId();
 
+      const bodyV = {
+        respuestas: viabResp
+          .filter(v => (v.respuesta ?? "") !== "")
+          .map(v => ({ id: v.id, respuesta: v.respuesta }))
+      };
+      await fetch(`${API_BASE_DEFAULT}/proyecto/formulario/${id}/viabilidades-respuestas`, {
+        method:"PUT", headers:{"Content-Type":"application/json"}, body: JSON.stringify(bodyV)
+      });
       const funcionarios = tiposViabilidad.map(t => ({
         id_tipo_viabilidad: t.id,
         nombre: funcionariosViab[t.id]?.nombre || "",
@@ -524,9 +552,7 @@ export default function App() {
 
   async function saveAll() { for (const w of [1,2,3,4,5]) { await saveStep(w); } }
 
-  /* ---------- Abrir fila: SIN /resolve y SIN crear automáticamente ---------- */
   async function openFromRow(p: ProyectoListaItemFlex) {
-    // Usa id si viene en la lista
     const rid = getRowId(p);
     if (rid != null) {
       setFormId(rid);
@@ -535,7 +561,6 @@ export default function App() {
       return;
     }
 
-    // Si NO viene id, pregunto antes de crear
     const nombre = String(p.nombre ?? p.nombre_proyecto ?? "").trim();
     const cod = Number(p.cod_id_mga ?? p.cod_mga ?? p.codigo_mga ?? NaN);
     const dep = Number(p.id_dependencia ?? p.dependencia_id ?? NaN);
@@ -618,7 +643,7 @@ export default function App() {
           id_sector:            r.id_sector            ?? prev.datos_basicos.id_sector            ?? null,
           id_programa:          r.id_programa          ?? prev.datos_basicos.id_programa          ?? null,
           nombre_secretario: r.nombre_secretario ?? prev.datos_basicos.nombre_secretario ?? "",
-          oficina_secretario: r.oficina_secretario ?? prev.datos_basicos.oficina_secretario ?? "",
+          fuentes: r.fuentes ?? prev.datos_basicos.fuentes ?? "",
           duracion_proyecto:  r.duracion_proyecto  ?? prev.datos_basicos.duracion_proyecto  ?? 0,
           cantidad_beneficiarios: r.cantidad_beneficiarios ?? prev.datos_basicos.cantidad_beneficiarios ?? 0,
         },
@@ -630,6 +655,14 @@ export default function App() {
         anio_inicio: minAnio,
         estructura_financiera_ui: efUI,
       }));
+      const [vsr, vtr, vbr] = await Promise.all([
+        fetchJson(`/proyecto/formulario/${id}/variables-sectorial-respuestas`),
+        fetchJson(`/proyecto/formulario/${id}/variables-tecnico-respuestas`),
+        fetchJson(`/proyecto/formulario/${id}/viabilidades-respuestas`),
+      ]);
+      setVarsSectorialResp(vsr);
+      setVarsTecnicoResp(vtr);
+      setViabResp(vbr);
 
       setStep(1);
     } catch (e) {
@@ -679,7 +712,7 @@ export default function App() {
         id_programa: null,
         id_sector: null,
         nombre_secretario: "",
-        oficina_secretario: "",
+        fuentes: "",
         duracion_proyecto: 0,
         cantidad_beneficiarios: 0,
       },
@@ -853,7 +886,7 @@ export default function App() {
             [2, "Metas"],
             [3, "Estructura financiera"],
             [4, "Variables analizadas"],
-            [5, "Políticas"],
+            [5, "Políticas transversales"],
             [6, "Viabilidad"],
             [7, "Descargas"],
           ].map(([idx, label]) => (
@@ -928,11 +961,6 @@ export default function App() {
                   onChange={(e) => setDatos(p => ({ ...p, datos_basicos: { ...p.datos_basicos, nombre_secretario: e.target.value } }))} />
               </Field>
 
-              <Field label="Oficina Secretaría">
-                <Input type="text" value={datos.datos_basicos.oficina_secretario}
-                  onChange={(e) => setDatos(p => ({ ...p, datos_basicos: { ...p.datos_basicos, oficina_secretario: e.target.value } }))} />
-              </Field>
-
               <Field label="Duración del proyecto (meses)">
                 <Input type="number" value={datos.datos_basicos.duracion_proyecto}
                   onChange={e=> setDatos(p=>({ ...p, datos_basicos: { ...p.datos_basicos, duracion_proyecto: Number(e.target.value || 0) } }))} />
@@ -941,6 +969,11 @@ export default function App() {
               <Field label="Cantidad de beneficiarios">
                 <Input type="number" value={datos.datos_basicos.cantidad_beneficiarios} 
                 onChange={(e) => setDatos(p => ({ ...p, datos_basicos: { ...p.datos_basicos, cantidad_beneficiarios: Number(e.target.value || 0) } }))} />
+              </Field>
+
+              <Field label="Fuentes de beneficiarios">
+                <Input type="text" value={datos.datos_basicos.fuentes}
+                  onChange={(e) => setDatos(p => ({ ...p, datos_basicos: { ...p.datos_basicos, fuentes: e.target.value } }))} />
               </Field>
             </CardContent>
           </Card>
@@ -951,7 +984,7 @@ export default function App() {
           <Card className="shadow-sm">
             <CardContent className="p-4 space-y-2">
               <h3 className="font-semibold">Metas — depende del Programa</h3>
-              <div className="border rounded-xl p-3 max-h-72 overflow-auto space-y-1">
+              <div className="border rounded-xl p-3 max-h-120 overflow-auto space-y-1">
                 {metas.map(o => (
                   <CheckItem
                     key={`m-${o.id}`}
@@ -1107,38 +1140,48 @@ export default function App() {
             <CardContent className="p-4 space-y-6">
               <div className="space-y-2">
                 <h3 className="font-semibold">Variables concepto sectorial</h3>
-                <div className="border rounded-xl p-3 max-h-72 overflow-auto space-y-1">
-                  {variablesSectorial.map(o => (
-                    <CheckItem
-                      key={`vs-${o.id}`}
-                      label={`${o.id} — ${o.nombre}`}
-                      checked={datos.variables_sectorial_sel.includes(o.id)}
-                      onChange={(v)=> setDatos(prev => {
-                        const set = new Set<number>(prev.variables_sectorial_sel);
-                        if (v) set.add(o.id); else set.delete(o.id);
-                        const unionCompat = new Set<number>([ ...Array.from(set), ...prev.variables_tecnico_sel ]);
-                        return { ...prev, variables_sectorial_sel: Array.from(set), variables_sel: Array.from(unionCompat) };
-                      })}
-                    />
+                <div className="border rounded-xl p-3 max-h-120 overflow-auto space-y-5">
+                  {varsSectorialRespSorted.map(v => (
+                    <div key={`vs-${v.id}`} className="grid md:grid-cols-[7fr_1fr] gap-2 items-center">
+                      <div className="text-sm">{v.id} — {v.nombre}</div>
+                      <select
+                        className="h-8 rounded-md border px-2 text-sm"
+                        value={v.respuesta ?? ""}
+                        onChange={(e)=>{
+                          const value = e.target.value as Respuesta;
+                          setVarsSectorialResp(prev => prev.map(x => x.id===v.id ? { ...x, respuesta:value } : x));
+                        }}
+                      >
+                        <option value="">Selecciona…</option>
+                        <option value="SI">SI</option>
+                        <option value="NO">NO</option>
+                        {v.no_aplica && <option value="N/A">N/A</option>}
+                      </select>
+                    </div>
                   ))}
                 </div>
               </div>
 
               <div className="space-y-2">
                 <h3 className="font-semibold">Variables concepto técnico</h3>
-                <div className="border rounded-xl p-3 max-h-72 overflow-auto space-y-1">
-                  {variablesTecnico.map(o => (
-                    <CheckItem
-                      key={`vt-${o.id}`}
-                      label={`${o.id} — ${o.nombre}`}
-                      checked={datos.variables_tecnico_sel.includes(o.id)}
-                      onChange={(v)=> setDatos(prev => {
-                        const set = new Set<number>(prev.variables_tecnico_sel);
-                        if (v) set.add(o.id); else set.delete(o.id);
-                        const unionCompat = new Set<number>([ ...prev.variables_sectorial_sel, ...Array.from(set) ]);
-                        return { ...prev, variables_tecnico_sel: Array.from(set), variables_sel: Array.from(unionCompat) };
-                      })}
-                    />
+                <div className="border rounded-xl p-3 max-h-120 overflow-auto space-y-5">
+                  {varsTecnicoRespSorted.map(v => (
+                    <div key={`vt-${v.id}`} className="grid md:grid-cols-[7fr_1fr] gap-2 items-center">
+                      <div className="text-sm">{v.id} — {v.nombre}</div>
+                      <select
+                        className="h-8 rounded-md border px-2 text-sm"
+                        value={v.respuesta ?? ""}
+                        onChange={(e)=>{
+                          const value = e.target.value as Respuesta;
+                          setVarsTecnicoResp(prev => prev.map(x => x.id===v.id ? { ...x, respuesta:value } : x));
+                        }}
+                      >
+                        <option value="">Selecciona…</option>
+                        <option value="SI">SI</option>
+                        <option value="NO">NO</option>
+                        {v.no_aplica && <option value="N/A">N/A</option>}
+                      </select>
+                    </div>
                   ))}
                 </div>
               </div>
@@ -1263,18 +1306,24 @@ export default function App() {
             <CardContent className="p-4 space-y-6">
               <div className="space-y-2">
                 <h3 className="font-semibold">Viabilidad</h3>
-                <div className="border rounded-xl p-3 max-h-72 overflow-auto space-y-1">
-                  {viabilidadList.map(o => (
-                    <CheckItem
-                      key={`via-${o.id}`}
-                      label={`${o.id} — ${o.nombre}`}
-                      checked={viabilidadesSel.includes(o.id)}
-                      onChange={(v)=> setViabilidadesSel(prev=>{
-                        const s = new Set(prev);
-                        if (v) s.add(o.id); else s.delete(o.id);
-                        return Array.from(s);
-                      })}
-                    />
+                <div className="border rounded-xl p-3 max-h-120 overflow-auto space-y-5">
+                  {viabRespSorted.map(v => (
+                    <div key={`vb-${v.id}`} className="grid md:grid-cols-[7fr_1fr] gap-2 items-center">
+                      <div className="text-sm">{v.id} — {v.nombre}</div>
+                      <select
+                        className="h-8 rounded-md border px-2 text-sm"
+                        value={v.respuesta ?? ""}
+                        onChange={(e)=>{
+                          const value = e.target.value as Respuesta;
+                          setViabResp(prev => prev.map(x => x.id===v.id ? { ...x, respuesta:value } : x));
+                        }}
+                      >
+                        <option value="">Selecciona…</option>
+                        <option value="SI">SI</option>
+                        <option value="NO">NO</option>
+                        {v.no_aplica && <option value="N/A">N/A</option>}
+                      </select>
+                    </div>
                   ))}
                 </div>
               </div>
@@ -1317,6 +1366,14 @@ export default function App() {
             <div className="w-full">
               <h2 className="text-2xl font-bold mb-6">Descargas</h2>
 
+              {/* ALERTA: Políticas > Total del proyecto */}
+              {totalPoliticas > totalProyecto && (
+                <div className="mb-4 rounded-lg border border-red-300 bg-red-50 text-red-800 px-3 py-2 text-sm">
+                  Atención: el valor de <b>políticas transversales</b> ({toMoney(totalPoliticas)}) supera el
+                  <b> total del proyecto</b> ({toMoney(totalProyecto)}). Revisa la estructura financiera o ajusta los valores destinados a políticas.
+                </div>
+              )}
+
               {typeof formId === "number" ? (
                 <DownloadList
                   formId={formId}
@@ -1329,6 +1386,7 @@ export default function App() {
               )}
             </div>
           )}
+
 
         {/* Navegación inferior */}
         <div className="flex items-center justify-between">

@@ -58,6 +58,18 @@ def listar_variables_sectorial(db):
 def listar_variables_tecnico(db):
     return db.query(VariableTecnico).order_by(VariableTecnico.nombre_variable).all()
 
+def leer_respuestas_sectorial(db, form_id:int) -> dict[int,str]:
+    rows = db.query(VariablesSectorialRel).filter(VariablesSectorialRel.id_formulario==form_id).all()
+    return {r.id_variable_sectorial: (r.respuesta or None) for r in rows}
+
+def leer_respuestas_tecnico(db, form_id:int) -> dict[int,str]:
+    rows = db.query(VariablesTecnicoRel).filter(VariablesTecnicoRel.id_formulario==form_id).all()
+    return {r.id_variable_tecnico: (r.respuesta or None) for r in rows}
+
+def leer_respuestas_viabilidad(db, form_id:int) -> dict[int,str]:
+    rows = db.query(Viabilidades).filter(Viabilidades.id_formulario==form_id).all()
+    return {r.id_viabilidad: (r.respuesta or None) for r in rows}
+
 def listar_politicas(db: Session):
     return db.query(Politica).order_by(Politica.nombre_politica).all()
 
@@ -391,3 +403,60 @@ def _ilike_no_accents(column, term: str):
     term_norm = (term or "").translate(_TRANS).lower()
     col_norm  = func.lower(func.translate(column, _ACCENTS, _ASCII))
     return col_norm.like(f"%{term_norm}%")
+
+def listar_cat_variables_sectorial(db): 
+    return listar_variables_sectorial(db)
+
+def listar_cat_variables_tecnico(db): 
+    return listar_variables_tecnico(db)
+
+def listar_cat_viabilidad(db): 
+    return listar_viabilidad(db)
+
+def leer_respuestas_viab(db, form_id:int):
+    return leer_respuestas_viabilidad(db, form_id)
+
+def upsert_respuestas_sectorial(db, form_id:int, pares:list[tuple[int,str]]):
+    cat = {v.id: v.no_aplica for v in listar_variables_sectorial(db)}
+    db.query(VariablesSectorialRel).filter(VariablesSectorialRel.id_formulario==form_id).delete()
+    to_add=[]
+    for vid, resp in pares or []:
+        if vid not in cat: continue
+        no_apl = bool(cat[vid])
+        resp = (resp or "").upper().strip()
+        if resp not in ("SI","NO","N/A"): continue
+        if resp=="N/A" and not no_apl:
+            continue
+        to_add.append(VariablesSectorialRel(id_formulario=form_id, id_variable_sectorial=vid, respuesta=resp))
+    if to_add: db.add_all(to_add)
+    db.commit()
+
+def upsert_respuestas_tecnico(db, form_id:int, pares:list[tuple[int,str]]):
+    cat = {v.id: v.no_aplica for v in listar_variables_tecnico(db)}
+    db.query(VariablesTecnicoRel).filter(VariablesTecnicoRel.id_formulario==form_id).delete()
+    to_add=[]
+    for vid, resp in pares or []:
+        if vid not in cat: continue
+        no_apl = bool(cat[vid])
+        resp = (resp or "").upper().strip()
+        if resp not in ("SI","NO","N/A"): continue
+        if resp=="N/A" and not no_apl:
+            continue
+        to_add.append(VariablesTecnicoRel(id_formulario=form_id, id_variable_tecnico=vid, respuesta=resp))
+    if to_add: db.add_all(to_add)
+    db.commit()
+
+def upsert_respuestas_viab(db, form_id:int, pares:list[tuple[int,str]]):
+    cat = {v.id: v.no_aplica for v in listar_viabilidad(db)}
+    db.query(Viabilidades).filter(Viabilidades.id_formulario==form_id).delete()
+    to_add=[]
+    for vid, resp in pares or []:
+        if vid not in cat: continue
+        no_apl = bool(cat[vid])
+        resp = (resp or "").upper().strip()
+        if resp not in ("SI","NO","N/A"): continue
+        if resp=="N/A" and not no_apl:
+            continue
+        to_add.append(Viabilidades(id_formulario=form_id, id_viabilidad=vid, respuesta=resp))
+    if to_add: db.add_all(to_add)
+    db.commit()

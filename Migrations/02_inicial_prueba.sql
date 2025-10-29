@@ -5,6 +5,14 @@ INSERT INTO personas (nombre, rol) VALUES
 INSERT INTO periodo_lema (inicio_periodo, fin_periodo, lema) VALUES
   (2024, 2027, 'La fuerza del pueblo');
 
+INSERT INTO viabilidad (nombre, no_aplica) values
+  ('Viabilidad política: El proyecto fue formulado acorde a la articulación política de los tres niveles de gobierno: Nacional, departamental y municipal. Contribuye al cumplimiento de metas del plan de desarrollo departamental vigente, está clasificada con los objetivos del Plan Nacional de Desarrollo, la entidad es competente para el desarrollo del proyecto y tiene indicadores que contribuyen directamente con todos los planes de desarrollo en los 3 niveles.',FALSE),
+  ('Viabilidad técnica:  El proyecto cuenta con el sustento técnico y los soportes correspondientes para el horizonte de planeación definido; cuenta con cronograma, la descripción de la alternativa es clara y completa, las actividades planteadas describen un proceso de valor público para la obtención de los productos, se identifican las actividades y los insumos para generar los productos, hay articulación y coherencia entre los elementos analizados al contrastar la alternativa de solución con el problema identificado; es sostenible y se solicitan recursos para fase III de factibilidad.',FALSE),
+  ('Viabilidad económica o financiera: El coste de las actividades es consistente con la cantidad y la calidad de los productos a entregar y con el presupuesto del proyecto. Los recursos señalados en las actividades de los productos garantizan el cumplimiento de las metas programadas a través de los indicadores por producto del proyecto.',FALSE),
+  ('Viabilidad social: el proyecto contribuye al mejoramiento de calidad de vida de las personas beneficiadas, la articulación con la comunidad da fe del cumplimiento de compromisos concertados con la comunidad en la formulación.',FALSE),
+  ('Viabilidad ambiental: El proyecto ha surtido el desarrollo de trámites ambientales ante la autoridad ambiental competente, contempla el desarrollo de actividades ambientales para mitigar los impactos al ambiente.',TRUE),
+  ('Viabilidad Juridica: El proyecto cumple con las dispociciones legales y normativas aplicables. La dependencia conoce que, los negocios jurídicos que se requieran para ejecutar las actividades y los recursos aprobados en este proyecto y sus modalidades de contratación, deberán determinarse por la Oficina Asesora Jurídica del Departamento conforme a su competencia.',TRUE);
+
 INSERT INTO tipo_viabilidad (nombre) VALUES
   ('Técnica'),
   ('Jurídica'),
@@ -553,31 +561,31 @@ INSERT INTO meta (numero_meta, nombre_meta, id_programa) VALUES
   (258, 'Centro de alto rendimiento construido y dotado', 67),
   (259, 'Estadios construidos', 67);
 
-INSERT INTO variable_sectorial (nombre_variable) VALUES
-  ('ES COMPETENCIA DE LA DEPENDENCIA SECTORIAL PROPONENTE, LA IMPLEMENTACIÓN DEL PROYECTO'),
-  ('LAS METAS  DEL PROYECTO, ESTAN CLARAMENTE DEFINIDAS Y CUANTIFICADAS Y CONTRINUYEN EFECTIVAMENTE AL LOGRO DE METAS DEL PROGRAMA DEL PLAN DEPARTAMENTAL DE DESARROLLO'),
-  ('EL PROYECTO DA RESPUESTA A LAS NECESIDADES DEL SECTOR PARA EL QUE FUE FORMULADO'),
-  ('EL PROBLEMA ESTA BIEN DEFINIDO, SON CLARAS SUS CAUSAS Y SUS EFETOS DIRECTOS E INDIRECTOS'),
-  ('ESTAN CLARAMENTE DETERMINADOS EL OBJETIVO GENERAL Y LOS OBJETIVOS ESPECIFICOS'),
-  ('EL PROYECTO TIENE DEFINIDA LA LOCALIZACIÓN DE LA INTERVENCIÓN'),
-  ('EL PROYECTO TIENE DEFINIDA LA POBLACIÓN OBJETO DE LA INTERVENCIÓN'),
-  ('LA ALTERNATIVA SELECCIONADA SOLUCIONA EFECTIVAMENTE EL PROBLEMA ENUNCIADO POR ESTA DEPENDENCIA'),
-  ('LAS ACTIVIDADES PLANTEADAS SON COHERENTES CON LOS PRODUCTOS Y ESTOS CON  LOS OBJETIVOS ESPECIFICOS');
+INSERT INTO variable_sectorial (nombre_variable, no_aplica) VALUES
+  ('ES COMPETENCIA DE LA DEPENDENCIA SECTORIAL PROPONENTE, LA IMPLEMENTACIÓN DEL PROYECTO',FALSE),
+  ('LAS METAS  DEL PROYECTO, ESTAN CLARAMENTE DEFINIDAS Y CUANTIFICADAS Y CONTRINUYEN EFECTIVAMENTE AL LOGRO DE METAS DEL PROGRAMA DEL PLAN DEPARTAMENTAL DE DESARROLLO',FALSE),
+  ('EL PROYECTO DA RESPUESTA A LAS NECESIDADES DEL SECTOR PARA EL QUE FUE FORMULADO',FALSE),
+  ('EL PROBLEMA ESTA BIEN DEFINIDO, SON CLARAS SUS CAUSAS Y SUS EFETOS DIRECTOS E INDIRECTOS',FALSE),
+  ('ESTAN CLARAMENTE DETERMINADOS EL OBJETIVO GENERAL Y LOS OBJETIVOS ESPECIFICOS',FALSE),
+  ('EL PROYECTO TIENE DEFINIDA LA LOCALIZACIÓN DE LA INTERVENCIÓN',FALSE),
+  ('EL PROYECTO TIENE DEFINIDA LA POBLACIÓN OBJETO DE LA INTERVENCIÓN',FALSE),
+  ('LA ALTERNATIVA SELECCIONADA SOLUCIONA EFECTIVAMENTE EL PROBLEMA ENUNCIADO POR ESTA DEPENDENCIA',FALSE),
+  ('LAS ACTIVIDADES PLANTEADAS SON COHERENTES CON LOS PRODUCTOS Y ESTOS CON  LOS OBJETIVOS ESPECIFICOS',FALSE);
 
-INSERT INTO variable_tecnico (nombre_variable) VALUES
-  ('Proyecto formulado en la Metodología General Ajustada (MGA).'),
-  ('El lugar de intervención del proyecto no se encuentra localizado en zona que presente alto riesgo no mitigable y está acorde con las normas establecidas en el respectivo Plan de Ordenamiento Territorial (POT), Plan Básico de Ordenamiento Territorial (PBOT), o Esquema de Ordenamiento Territorial (EOT), de conformidad con lo señalado en la normativa vigente'),
-  ('La alternativa de solución seleccionada permite mitigar el problema identificado y es acorde a los objetivos del proyecto. Su ejecución se articula al sector y programa de inversión correcto'),
-  ('La intervención y alternativa de solución propuesta, es competencia del departamento del Cauca'),
-  ('Los costos de la alternativa están acordes con los precios de mercado de la región'),
-  ('Los recursos solicitados son el resultado de un costeo claro y soportado de las actividades del proyecto en cada una de sus vigencias'),
-  ('El presupuesto del proyecto tiene los análisis de precios respectivos'),
-  ('El proyecto considera los trámites, licencias y permisos necesarios de acuerdo con su naturaleza.'),
-  ('El proyecto presenta las especificaciones técnicas de las obras, servicios, equipos, documentos y/o demás entregables inmersos en el desarrollo de las actividades.'),
-  ('Los diseños, estudios, planos y/ anexos técnicos de soporte cumplen con las Normas Técnicas Colombianas (NTC) aplicables'),
-  ('El horizonte establecido para la ejecución es acorde con el alcance del proyecto   y el tiempo mínimo necesario para el desarrollo de las actividades en la calidad requerida.'),
-  ('Se ha efectuado un análisis de riesgos, acorde a la complejidad y naturaleza del proyecto'),
-  ('El proyecto es sostenible y el responsable (departamento y/o municipio o la entidad u organización que recibe y estará a cargo de los bienes) garantiza la operación y funcionamiento de los bienes entregados con ingresos de naturaleza permanente.');
+INSERT INTO variable_tecnico (nombre_variable, no_aplica) VALUES
+  ('Proyecto formulado en la Metodología General Ajustada (MGA).',FALSE),
+  ('El lugar de intervención del proyecto no se encuentra localizado en zona que presente alto riesgo no mitigable y está acorde con las normas establecidas en el respectivo Plan de Ordenamiento Territorial (POT), Plan Básico de Ordenamiento Territorial (PBOT), o Esquema de Ordenamiento Territorial (EOT), de conformidad con lo señalado en la normativa vigente',TRUE),
+  ('La alternativa de solución seleccionada permite mitigar el problema identificado y es acorde a los objetivos del proyecto. Su ejecución se articula al sector y programa de inversión correcto',FALSE),
+  ('La intervención y alternativa de solución propuesta, es competencia del departamento del Cauca',FALSE),
+  ('Los costos de la alternativa están acordes con los precios de mercado de la región',FALSE),
+  ('Los recursos solicitados son el resultado de un costeo claro y soportado de las actividades del proyecto en cada una de sus vigencias',FALSE),
+  ('El presupuesto del proyecto tiene los análisis de precios respectivos',FALSE),
+  ('El proyecto considera los trámites, licencias y permisos necesarios de acuerdo con su naturaleza.',TRUE),
+  ('El proyecto presenta las especificaciones técnicas de las obras, servicios, equipos, documentos y/o demás entregables inmersos en el desarrollo de las actividades.',TRUE),
+  ('Los diseños, estudios, planos y/ anexos técnicos de soporte cumplen con las Normas Técnicas Colombianas (NTC) aplicables',TRUE),
+  ('El horizonte establecido para la ejecución es acorde con el alcance del proyecto   y el tiempo mínimo necesario para el desarrollo de las actividades en la calidad requerida.',FALSE),
+  ('Se ha efectuado un análisis de riesgos, acorde a la complejidad y naturaleza del proyecto',TRUE),
+  ('El proyecto es sostenible y el responsable (departamento y/o municipio o la entidad u organización que recibe y estará a cargo de los bienes) garantiza la operación y funcionamiento de los bienes entregados con ingresos de naturaleza permanente.',TRUE);
 
 INSERT INTO politica (nombre_politica) VALUES
   ('Actividades de Ciencia, Tecnología e Innovación'),

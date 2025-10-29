@@ -62,7 +62,7 @@ CREATE TABLE formulario (
     id_programa INT REFERENCES programa,
     id_sector INT REFERENCES sector,
     nombre_secretario TEXT,
-    oficina_secretario TEXT,
+    fuentes TEXT,
     duracion_proyecto INT,
     cantidad_beneficiarios INT
 );
@@ -85,27 +85,31 @@ CREATE TABLE metas (
 -- Tabla: variable_sectorial 
 CREATE TABLE variable_sectorial (
     id SERIAL PRIMARY KEY,
-    nombre_variable TEXT NOT NULL
+    nombre_variable TEXT NOT NULL,
+    no_aplica BOOLEAN NOT NULL
 );
 
 -- Tabla: variables_sectorial
 CREATE TABLE variables_sectorial (
     id SERIAL PRIMARY KEY,
     id_variable_sectorial INT NOT NULL REFERENCES variable_sectorial,
-    id_formulario INT NOT NULL REFERENCES formulario
+    id_formulario INT NOT NULL REFERENCES formulario,
+    respuesta TEXT NOT NULL
 );
 
 -- Tabla: variable_tecnico
 CREATE TABLE variable_tecnico (
     id SERIAL PRIMARY KEY,
-    nombre_variable TEXT NOT NULL
+    nombre_variable TEXT NOT NULL,
+    no_aplica BOOLEAN NOT NULL
 );
 
 -- Tabla: variables_tecnico
 CREATE TABLE variables_tecnico (
     id SERIAL PRIMARY KEY,
     id_variable_tecnico INT NOT NULL REFERENCES variable_tecnico,
-    id_formulario INT NOT NULL REFERENCES formulario
+    id_formulario INT NOT NULL REFERENCES formulario,
+    respuesta TEXT NOT NULL
 );
 
 -- Tabla: politica
@@ -169,14 +173,16 @@ CREATE TABLE personas (
 -- Tabla: viabilidad
 CREATE TABLE viabilidad (
     id SERIAL PRIMARY KEY,
-    nombre TEXT NOT NULL
+    nombre TEXT NOT NULL,
+    no_aplica BOOLEAN NOT NULL
 );
 
 -- Tabla: viabilidades
 CREATE TABLE viabilidades (
     id SERIAL PRIMARY KEY,
     id_viabilidad INT NOT NULL REFERENCES viabilidad,
-    id_formulario INT NOT NULL REFERENCES formulario
+    id_formulario INT NOT NULL REFERENCES formulario,
+    respuesta TEXT NOT NULL
 );
 
 -- Tabla: tipo_viabilidad

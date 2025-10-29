@@ -96,7 +96,7 @@ def _fetch_base_context(db: Session, form_id: int) -> dict:
         "nombre_programa": prog_nom or "",
         "nombre_linea_estrategica": linea_nom or "",
         "nombre_secretario": form.nombre_secretario,
-        "oficina_secretario": getattr(form, "oficina_secretario", None),
+        "fuentes": getattr(form, "fuentes", None),
         "duracion_proyecto": getattr(form, "duracion_proyecto", None),
         "cantidad_beneficiarios": getattr(form, "cantidad_beneficiarios", None),
     }
@@ -279,7 +279,8 @@ def _context_word_common(base: Dict[str, object]) -> Dict[str, object]:
         "nombre_linea_estrategica": base["nombre_linea_estrategica"],
 
         "nombre_secretario": base.get("nombre_secretario"),
-        "oficina_secretaria": base.get("oficina_secretario") or "",
+        "oficina_secretaria": base.get("nombre_dependencia") or "",
+        "fuentes": base.get("fuentes") or "",
         "nombre_persona":     base.get("nombre_secretario") or "",
 
         "programa": base["nombre_programa"],
@@ -423,7 +424,6 @@ def _merge_ctx_carta(db, form_id: int) -> dict:
     ctx["costo_texto"] = numero_a_texto(total_general)
 
     return ctx
-
 
 def _render_word(key: str, form_id: int, context: Dict[str, object]) -> Tuple[BytesIO, str]:
     if key not in TEMPLATE_MAP:

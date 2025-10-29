@@ -138,7 +138,7 @@ class FormularioRead(BaseModel):
     class Config: from_attributes = True
     viabilidades: List[ViabilidadRead] = []
     funcionarios_viabilidad: List[FuncionarioViabilidadIn] = []
-    oficina_secretario: Optional[str] = None
+    fuentes: Optional[str] = None
     duracion_proyecto: Optional[int] = None
     cantidad_beneficiarios: Optional[int] = None
     
@@ -155,7 +155,7 @@ class FormularioUpsertBasicos(BaseModel):
     id_programa: Optional[int] = None
     id_sector: Optional[int] = None
     nombre_secretario: Optional[str] = None
-    oficina_secretario: Optional[str] = None
+    fuentes: Optional[str] = None
     duracion_proyecto: Optional[int] = None
     cantidad_beneficiarios: Optional[int] = None
 
@@ -180,4 +180,20 @@ class FormularioCreateMinimo(BaseModel):
 class FormularioId(BaseModel):
     id: int
 
+class VarCatalogoRead(BaseModel):
+    id: int
+    nombre: str
+    no_aplica: bool
 
+class VarRespuestaRead(BaseModel):
+    id: int
+    nombre: str
+    no_aplica: bool
+    respuesta: Optional[str] = None
+
+class VarRespuestaIn(BaseModel):
+    id: int
+    respuesta: str
+
+class VarsRespuestaUpsertIn(BaseModel):
+    respuestas: List[VarRespuestaIn]
