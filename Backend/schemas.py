@@ -31,6 +31,10 @@ class MetaRead(BaseModel):
     id: int
     numero_meta: int
     nombre_meta: str
+    codigo_producto: int
+    nombre_producto: str
+    codigo_indicador_producto: int
+    nombre_indicador_producto: str
     class Config: from_attributes = True
 
 class VariableSectorialRead(BaseModel):

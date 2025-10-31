@@ -72,7 +72,11 @@ CREATE TABLE meta (
     id SERIAL PRIMARY KEY,
     id_programa INT NOT NULL REFERENCES programa,
     numero_meta INT NOT NULL,
-    nombre_meta TEXT NOT NULL
+    nombre_meta TEXT NOT NULL,
+    codigo_producto INT NOT NULL,
+    nombre_producto TEXT NOT NULL,
+    codigo_indicador_producto INT NOT NULL,
+    nombre_indicador_producto TEXT NOT NULL
 );
 
 -- Tabla: metas

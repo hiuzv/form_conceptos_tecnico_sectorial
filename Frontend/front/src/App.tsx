@@ -82,10 +82,15 @@ function normalizaFlex(arr: any[], posiblesNombres: string[], campoCodigo?: stri
   if (!Array.isArray(arr)) return [];
   return arr.map((x) => {
     const nombreKey = posiblesNombres.find(k => x[k] != null) ?? posiblesNombres[0];
+    let codigo: number | null = null;
+    if (campoCodigo) {
+      const c = Number(x[campoCodigo as keyof typeof x]);
+      codigo = Number.isFinite(c) ? c : null;
+    }
     return {
       id: Number(x.id ?? x.id_dependencia ?? x.codigo ?? x.cod_id_mga ?? 0),
       nombre: String(x[nombreKey] ?? x.nombre ?? x.dependencia ?? ""),
-      codigo: campoCodigo ? (x[campoCodigo] ?? null) : null,
+      codigo,
     };
   });
 }
@@ -102,11 +107,18 @@ function sortOptions(arr: Opcion[]): Opcion[] {
 }
 function round2(n: number) { return Math.round(n * 100) / 100; }
 function parseDecimal2(raw: string): number | null {
-  const t = (raw ?? "").trim().replace(/\s+/g, "").replace(",", ".");
-  if (t === "") return 0;
+  const t0 = (raw ?? "").trim();
+  if (t0 === "") return 0;
+  const t = t0.replace(/\s+/g, "").replace(/\./g, "").replace(",", ".");
   if (!/^\d*(?:\.\d{0,2})?$/.test(t)) return null;
   const num = Number(t);
   return Number.isFinite(num) ? round2(num) : null;
+}
+function formatMiles(value?: string | number) {
+  if (value == null || value === "") return "";
+  const num = typeof value === "string" ? Number(value.replace(/\./g, "").replace(",", ".")) : Number(value);
+  if (isNaN(num)) return value.toString();
+  return num.toLocaleString("es-CO", { minimumFractionDigits: 0 });
 }
 function numbersEqual(a: number, b: number) { return Math.abs(a - b) < 0.005; }
 function keyFin(anio: number, entidad: EntidadFin) { return `${anio}|${entidad}`; }
@@ -344,7 +356,8 @@ export default function App() {
     (async () => {
       try {
         const r = await fetchJson(`/proyecto/metas?programa_id=${idPrograma}`);
-        const ops = sortOptions(normalizaFlex(r, ["nombre_meta", "nombre"]));
+        const arr = Array.isArray(r) ? r : (r?.items ?? r?.data ?? r?.results ?? []);
+        const ops = sortOptions(normalizaFlex(arr, ["nombre_meta", "nombre"], "numero_meta"));
         setMetas(ops);
         setDatos(p => {
           const valid = new Set(ops.map(o => o.id));
@@ -590,46 +603,99 @@ export default function App() {
     await loadForm(nid);
   }
 
-  /* ---------- Carga de un formulario existente ---------- */
   async function loadForm(id: number) {
     try {
       const r = await fetchJson(`/proyecto/formulario/${id}`);
       const nombre_proyecto = r.nombre_proyecto ?? r.nombre ?? "";
       const cod_id_mga = Number(r.cod_id_mga ?? r.cod_mga ?? r.codigo_mga ?? 0);
-     
-      // Estructura financiera
       const efUI: Record<string, string> = {};
       let minAnio: number | null = null;
-      (r.estructura_financiera || []).forEach((row: any) => {
-        const anio = row.anio ?? null;
+      const efArr: any[] = Array.isArray(r.estructura_financiera) ? r.estructura_financiera : [];
+      efArr.forEach((row: any) => {
+        const anio = Number(row.anio ?? row.year ?? NaN);
         const ent = (row.entidad ?? row.fuente) as EntidadFin;
-        const val = Number(row.valor ?? row.monto ?? 0);
-        if (anio != null && ent) {
-          const k = `${anio}|${ent}`;
-          efUI[k] = val ? val.toFixed(2) : "";
-          if (minAnio == null || anio < minAnio) minAnio = anio;
-        }
+        const valNum = Number(row.valor ?? row.monto ?? 0);
+        if (!Number.isFinite(anio) || !ent) return;
+        const isInt = Math.abs(valNum - Math.round(valNum)) < 0.005;
+        const uiStr = valNum
+          ? (isInt ? String(Math.round(valNum)) : valNum.toFixed(2).replace(".", ","))
+          : "";
+        const k = `${anio}|${ent}`;
+        efUI[k] = uiStr;
+        if (minAnio == null || anio < minAnio) minAnio = anio;
       });
-
-      // Mapear metas / variables
-      const metasSel = (r.metas || []).map((m: any) => Number(m.id ?? m.id_meta ?? m.meta_id ?? m.codigo)).filter(Number.isFinite);
-      const varsSecSel = (r.variables_sectorial || r.variables_sectoriales || []).map((v: any) => Number(v.id ?? v.id_variable ?? v.variable_id)).filter(Number.isFinite);
-      const varsTecSel = (r.variables_tecnico || r.variables_tecnicas || []).map((v: any) => Number(v.id ?? v.id_variable ?? v.variable_id)).filter(Number.isFinite);
-      const viaSel = (r.viabilidades || []).map((v:any)=> Number(v.id ?? v.id_viabilidad ?? v.viabilidad_id)).filter(Number.isFinite);
-      const funcs = Object.fromEntries((r.funcionarios_viabilidad || []).map((f:any) => [Number(f.id_tipo_viabilidad), { nombre: String(f.nombre||""), cargo: String(f.cargo||"") }]));
-      const politRows: PoliticaFila[] = (() => {
-        const src = Array.isArray(r.politicas) ? r.politicas : [];
-        const rows = src.slice(0, 2).map((p: any) => ({
-          id_politica: Number(p.id ?? p.id_politica ?? 0) || null,
-          id_categoria: null,
-          id_subcategoria: null,
-          valor_destinado: Number(p.valor_destinado ?? 0),
+      const metasSel = (Array.isArray(r.metas) ? r.metas : []).map((m: any) =>
+        Number(m.id ?? m.id_meta ?? m.meta_id ?? m.codigo)
+      ).filter(Number.isFinite);
+      const varsSecSel = (r.variables_sectorial || r.variables_sectoriales || []).map((v: any) =>
+        Number(v.id ?? v.id_variable ?? v.variable_id)
+      ).filter(Number.isFinite);
+      const varsTecSel = (r.variables_tecnico || r.variables_tecnicas || []).map((v: any) =>
+        Number(v.id ?? v.id_variable ?? v.variable_id)
+      ).filter(Number.isFinite);
+      const viaSel = (Array.isArray(r.viabilidades) ? r.viabilidades : []).map((v:any) =>
+        Number(v.id ?? v.id_viabilidad ?? v.viabilidad_id)
+      ).filter(Number.isFinite);
+      const funcs = Object.fromEntries(
+        (Array.isArray(r.funcionarios_viabilidad) ? r.funcionarios_viabilidad : [])
+          .map((f:any) => [Number(f.id_tipo_viabilidad), {
+            nombre: String(f.nombre || ""),
+            cargo:  String(f.cargo  || ""),
+          }])
+      );
+      const politicasSrc: any[]     = Array.isArray(r.politicas)     ? r.politicas     : [];
+      const categoriasSrc: any[]    = Array.isArray(r.categorias)    ? r.categorias    : [];
+      const subcategoriasSrc: any[] = Array.isArray(r.subcategorias) ? r.subcategorias : [];
+      const basePolitRows: PoliticaFila[] = politicasSrc.slice(0, 2).map((p: any) => {
+        const id_politica = Number(p.id ?? p.id_politica ?? 0) || null;
+        const catSel = categoriasSrc.find(
+          (c: any) => Number(c.id_politica) === Number(id_politica)
+        );
+        const id_categoria = catSel ? Number(catSel.id) : null;
+        const subSel = id_categoria
+          ? subcategoriasSrc.find((s: any) => Number(s.id_categoria) === Number(id_categoria))
+          : null;
+        const id_subcategoria = subSel ? Number(subSel.id) : null;
+        const valor_destinado = Number(p.valor_destinado ?? 0);
+        return {
+          id_politica,
+          id_categoria,
+          id_subcategoria,
+          valor_destinado,
           opciones_categorias: [],
           opciones_subcategorias: [],
-        }));
-        return rows.length ? rows : [{ id_politica: null, id_categoria: null, id_subcategoria: null, valor_destinado: 0 }];
-      })();
+        } as PoliticaFila;
+      });
+      const politRows: PoliticaFila[] = await Promise.all(
+        basePolitRows.map(async (row) => {
+          let opciones_categorias: Opcion[] = [];
+          let opciones_subcategorias: Opcion[] = [];
 
+          if (row.id_politica) {
+            try {
+              const cats = await fetchJson(`/proyecto/categorias?politica_id=${row.id_politica}`);
+              opciones_categorias = sortOptions(normalizaFlex(cats, ["nombre_categoria", "nombre"]));
+            } catch { /* noop */ }
+          }
+          if (row.id_categoria) {
+            try {
+              const subs = await fetchJson(`/proyecto/subcategorias?categoria_id=${row.id_categoria}`);
+              opciones_subcategorias = sortOptions(normalizaFlex(subs, ["nombre_subcategoria", "nombre"]));
+            } catch { /* noop */ }
+          }
+          return { ...row, opciones_categorias, opciones_subcategorias };
+        })
+      );
+      const politRowsFinal = politRows.length
+        ? politRows
+        : [{
+            id_politica: null,
+            id_categoria: null,
+            id_subcategoria: null,
+            valor_destinado: 0,
+            opciones_categorias: [],
+            opciones_subcategorias: [],
+          }];
       setViabilidadesSel(viaSel);
       setFuncionariosViab(funcs);
       setDatos(prev => ({
@@ -638,19 +704,19 @@ export default function App() {
           ...prev.datos_basicos,
           nombre_proyecto,
           cod_id_mga,
-          id_dependencia: r.id_dependencia ?? prev.datos_basicos.id_dependencia ?? null,
+          id_dependencia:       r.id_dependencia       ?? prev.datos_basicos.id_dependencia ?? null,
           id_linea_estrategica: r.id_linea_estrategica ?? prev.datos_basicos.id_linea_estrategica ?? null,
-          id_sector:            r.id_sector            ?? prev.datos_basicos.id_sector            ?? null,
-          id_programa:          r.id_programa          ?? prev.datos_basicos.id_programa          ?? null,
-          nombre_secretario: r.nombre_secretario ?? prev.datos_basicos.nombre_secretario ?? "",
-          fuentes: r.fuentes ?? prev.datos_basicos.fuentes ?? "",
-          duracion_proyecto:  r.duracion_proyecto  ?? prev.datos_basicos.duracion_proyecto  ?? 0,
+          id_sector:            r.id_sector            ?? prev.datos_basicos.id_sector ?? null,
+          id_programa:          r.id_programa          ?? prev.datos_basicos.id_programa ?? null,
+          nombre_secretario:    r.nombre_secretario    ?? prev.datos_basicos.nombre_secretario ?? "",
+          fuentes:              r.fuentes              ?? prev.datos_basicos.fuentes ?? "",
+          duracion_proyecto:    r.duracion_proyecto    ?? prev.datos_basicos.duracion_proyecto ?? 0,
           cantidad_beneficiarios: r.cantidad_beneficiarios ?? prev.datos_basicos.cantidad_beneficiarios ?? 0,
         },
         metas_sel: metasSel,
-        politicas: politRows,
+        politicas: politRowsFinal,
         variables_sectorial_sel: varsSecSel,
-        variables_tecnico_sel: varsTecSel,
+        variables_tecnico_sel:   varsTecSel,
         variables_sel: Array.from(new Set([...varsSecSel, ...varsTecSel])),
         anio_inicio: minAnio,
         estructura_financiera_ui: efUI,
@@ -663,13 +729,13 @@ export default function App() {
       setVarsSectorialResp(vsr);
       setVarsTecnicoResp(vtr);
       setViabResp(vbr);
-
       setStep(1);
     } catch (e) {
       console.error("No se pudo cargar el formulario", e);
       alert("No se pudo cargar el formulario seleccionado.");
     }
   }
+
 
   function sanitizeFileName(s: string) {
     return (s || "Formulario").trim().replace(/\s+/g, "_").replace(/[^\w\-\.]+/g, "");
@@ -987,8 +1053,8 @@ export default function App() {
               <div className="border rounded-xl p-3 max-h-120 overflow-auto space-y-1">
                 {metas.map(o => (
                   <CheckItem
-                    key={`m-${o.id}`}
-                    label={`${o.id} — ${o.nombre}`}
+                    key={`m-${o.codigo}`}
+                    label={`${o.codigo ?? ""} — ${o.nombre}`}
                     checked={datos.metas_sel.includes(o.id)}
                     onChange={(v)=> setDatos(prev => {
                       const set = new Set<number>(prev.metas_sel);
@@ -1053,7 +1119,7 @@ export default function App() {
                                     <input
                                       type="text"
                                       className="w-full rounded-md border px-2 py-1 text-right bg-slate-100 text-slate-700 font-bold"
-                                      value={depVal === 0 ? "" : depVal.toFixed(2)}
+                                      value={depVal === 0 ? "" : formatMiles(depVal.toFixed(0))}
                                       disabled
                                       readOnly
                                       title="Valor calculado: PROPIOS + todos los SGP"
@@ -1068,33 +1134,29 @@ export default function App() {
                                   <input
                                     type="text"
                                     inputMode="decimal"
-                                    placeholder="0,00"
+                                    placeholder="0"
                                     className={cx(
                                       "w-full rounded-md border px-2 py-1 text-right",
                                       isSub && "italic text-right pr-6"
                                     )}
-                                    value={raw}
-                                    onChange={e =>
+                                    value={formatMiles(raw)}
+                                    onChange={(e) => {
+                                      const clean = e.target.value.replace(/\./g, "");
                                       setDatos(p => ({
                                         ...p,
                                         estructura_financiera_ui: {
                                           ...p.estructura_financiera_ui,
-                                          [k]: e.target.value,
+                                          [k]: clean,
                                         },
-                                      }))
-                                    }
-                                    onBlur={e => {
+                                      }));
+                                    }}
+                                    onBlur={(e) => {
                                       const n = parseDecimal2(e.target.value);
                                       setDatos(p => ({
                                         ...p,
                                         estructura_financiera_ui: {
                                           ...p.estructura_financiera_ui,
-                                          [k]:
-                                            n === null
-                                              ? e.target.value ?? ""
-                                              : n === 0
-                                              ? ""
-                                              : n.toFixed(2),
+                                          [k]: n ? n.toString() : "",
                                         },
                                       }));
                                     }}

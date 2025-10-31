@@ -307,7 +307,6 @@ def _fmt(v: float) -> str:
     return "" if abs(v) < 0.005 else f"{v:.2f}"
 
 def _merge_ctx_carta(db, form_id: int) -> dict:
-    # --- 1) Cargar estructura financiera desde BD ---
     rows = db.execute(
         text("""
             SELECT anio, entidad, COALESCE(valor,0)::numeric
@@ -423,6 +422,41 @@ def _merge_ctx_carta(db, form_id: int) -> dict:
     ctx["costo_numero"] = _fmt(total_general).replace(",", "")
     ctx["costo_texto"] = numero_a_texto(total_general)
 
+    rows = db.execute(text("""
+        SELECT m.numero_meta, m.nombre_meta,
+               m.codigo_producto, m.nombre_producto,
+               m.codigo_indicador_producto, m.nombre_indicador_producto
+        FROM metas rel
+        JOIN meta m ON m.id = rel.id_meta
+        WHERE rel.id_formulario = :fid
+        ORDER BY m.numero_meta
+    """), {"fid": form_id}).fetchall()
+    metas_ctx = [{
+        "cod_meta": r[0],
+        "meta": r[1],
+        "cod_producto": r[2],
+        "producto": r[3],
+        "cod_indicador_producto": r[4],
+        "indicador_producto": r[5],
+    } for r in rows]
+    for i, m in enumerate(metas_ctx, start=1):
+        ctx[f"numero_meta_{i}"] = m["cod_meta"]
+        ctx[f"nombre_meta_{i}"] = m["meta"]
+        ctx[f"cod_meta_{i}"] = m["cod_meta"]
+        ctx[f"meta_{i}"] = m["meta"]
+        ctx[f"cod_producto_{i}"] = m["cod_producto"]
+        ctx[f"producto_{i}"] = m["producto"]
+        ctx[f"cod_indicador_producto_{i}"] = m["cod_indicador_producto"]
+        ctx[f"indicador_producto_{i}"] = m["indicador_producto"]
+    ctx["__metas_ctx__"] = metas_ctx
+    if metas_ctx:
+        first = metas_ctx[0]
+        ctx["cod_meta"] = first["cod_meta"]
+        ctx["meta"] = first["meta"]
+        ctx["producto"] = first["producto"]
+        ctx["cod_producto"] = first["cod_producto"]
+        ctx["indicador_producto"] = first["indicador_producto"]
+        ctx["cod_indicador_producto"] = first["cod_indicador_producto"]
     return ctx
 
 def _render_word(key: str, form_id: int, context: Dict[str, object]) -> Tuple[BytesIO, str]:

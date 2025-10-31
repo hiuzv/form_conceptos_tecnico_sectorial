@@ -38,7 +38,15 @@ def programas(sector_id: int = Query(..., ge=1), db: Session = Depends(get_db)):
 @router.get("/metas", response_model=List[schemas.MetaRead])
 def metas(programa_id: int = Query(..., ge=1), db: Session = Depends(get_db)):
     return [
-        schemas.MetaRead(id=r.id, numero_meta=r.numero_meta, nombre_meta=r.nombre_meta)
+        schemas.MetaRead(
+            id=r.id,
+            numero_meta=r.numero_meta,
+            nombre_meta=r.nombre_meta,
+            codigo_producto=r.codigo_producto,
+            nombre_producto=r.nombre_producto,
+            codigo_indicador_producto=r.codigo_indicador_producto,
+            nombre_indicador_producto=r.nombre_indicador_producto,
+        )
         for r in proyecto_service.listar_metas(db, programa_id)
     ]
 
@@ -121,7 +129,15 @@ def crear_formulario(payload: schemas.FormularioCreate, db: Session = Depends(ge
         fuentes=getattr(form_db, "fuentes", None) or "",
         duracion_proyecto=getattr(form_db, "duracion_proyecto", None) or 0,
         cantidad_beneficiarios=getattr(form_db, "cantidad_beneficiarios", None) or 0,
-        metas=[schemas.MetaRead(id=m.id, numero_meta=m.numero_meta, nombre_meta=m.nombre_meta) for m in metas_db],
+        metas=[schemas.MetaRead(
+            id=m.id,
+            numero_meta=m.numero_meta,
+            nombre_meta=m.nombre_meta,
+            codigo_producto=m.codigo_producto,
+            nombre_producto=m.nombre_producto,
+            codigo_indicador_producto=m.codigo_indicador_producto,
+            nombre_indicador_producto=m.nombre_indicador_producto,
+        ) for m in metas_db],
         variables_sectorial=[schemas.VariableSectorialRead(id=v.id, nombre_variable=v.nombre_variable) for v in vars_sectorial_db],
         variables_tecnico=[schemas.VariableTecnicoRead(id=v.id, nombre_variable=v.nombre_variable) for v in vars_tecnico_db],
         politicas = [schemas.PoliticaRead(id=p.id, nombre_politica=p.nombre_politica, valor_destinado=valor)
@@ -159,7 +175,15 @@ def obtener_formulario(form_id: int, db: Session = Depends(get_db)):
         fuentes=getattr(form_db, "fuentes", None) or "",
         duracion_proyecto=getattr(form_db, "duracion_proyecto", None) or 0,
         cantidad_beneficiarios=getattr(form_db, "cantidad_beneficiarios", None) or 0,
-        metas=[schemas.MetaRead(id=m.id, numero_meta=m.numero_meta, nombre_meta=m.nombre_meta) for m in metas_db] or [],
+        metas=[schemas.MetaRead(
+            id=m.id,
+            numero_meta=m.numero_meta,
+            nombre_meta=m.nombre_meta,
+            codigo_producto=m.codigo_producto,
+            nombre_producto=m.nombre_producto,
+            codigo_indicador_producto=m.codigo_indicador_producto,
+            nombre_indicador_producto=m.nombre_indicador_producto,
+        ) for m in metas_db] or [],
         variables_sectorial=[schemas.VariableSectorialRead(id=v.id, nombre_variable=v.nombre_variable) for v in vars_sectorial_db] or [],
         variables_tecnico=[schemas.VariableTecnicoRead(id=v.id, nombre_variable=v.nombre_variable) for v in vars_tecnico_db] or [],
         politicas=[schemas.PoliticaRead(id=p.id, nombre_politica=p.nombre_politica, valor_destinado=valor) for (p, valor) in pols_db] or [],
