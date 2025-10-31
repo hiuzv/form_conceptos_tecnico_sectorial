@@ -14,6 +14,19 @@ OUTPUT_CONCEPTO = "{}_3_y_4_Concepto_tecnico_y_sectorial_2025.xlsx"
 OUTPUT_CADENA = "{}_6.Cadena_de_valor.xlsx"
 OUTPUT_VIABILIDAD = "{}_7.Viabilidad_dependencias.xlsx"
 
+def _norm(s: str) -> str:
+        return "".join(c for c in unicodedata.normalize("NFKD", s) if not unicodedata.combining(c)).lower()
+
+def _get_sheet_fuzzy(wb, target_name: str):
+    try:
+        return wb[target_name]
+    except KeyError:
+        pass
+    tnorm = _norm(target_name)
+    for name in wb.sheetnames:
+        if _norm(name) == tnorm or tnorm in _norm(name):
+            return wb[name]
+    raise KeyError(f"No se encontró la hoja '{target_name}'")
 
 def _next_sequential_index(out_dir: Path) -> int:
     rx = re.compile(r"^(\d+)_3_y_4_Concepto_tecnico_y_sectorial_2025\.xlsx$", re.I)
@@ -154,40 +167,43 @@ def fill_from_template(base_dir: Path, data: dict, force_index: Optional[int] = 
     _write(ws, "F9",  data.get("nombre_programa", ""))
     _write(ws, "C10", data.get("nombre_linea_estrategica", ""))
 
-    variables_sec = data.get("variables_sectorial", None)
+    # ---------------------------
+    # 2) Variables SECTORIALES (Hoja 1)
+    # ---------------------------
+    variables_sec = data.get("variables_sectorial_respuestas")
     if variables_sec is None:
-        variables_sec = data.get("variables", [])
+        raw = data.get("variables_sectorial", data.get("variables", []))
+        variables_sec = [_to_respuesta(v) for v in raw]
 
     for i, base_row in enumerate(range(35, 44)):
         cell = f"H{base_row + shift}"
-        v = variables_sec[i] if i < len(variables_sec) else False
-        _write(ws, cell, "Sí" if bool(v) else "No")
+        v = variables_sec[i] if i < len(variables_sec) else ""
+        _write(ws, cell, v)
 
     # ---------------------------
     # 2.1) Variables TÉCNICAS
     # ---------------------------
 
-    def _norm(s: str) -> str:
-        return "".join(c for c in unicodedata.normalize("NFKD", s) if not unicodedata.combining(c)).lower()
-
-    def _get_sheet_fuzzy(wb, target_name: str):
-        try:
-            return wb[target_name]
-        except KeyError:
-            pass
-        tnorm = _norm(target_name)
-        for name in wb.sheetnames:
-            if _norm(name) == tnorm or tnorm in _norm(name):
-                return wb[name]
-        raise KeyError(f"No se encontró la hoja '{target_name}'")
-
     ws_tecnico = _get_sheet_fuzzy(wb, "Concepto Técnico General")
-    variables_tec = data.get("variables_tecnico", [])
+    variables_tec = data.get("variables_tecnico_respuestas")
+    if variables_tec is None:
+        rawt = data.get("variables_tecnico", [])
+        variables_tec = [_to_respuesta(v) for v in rawt]
 
     for i, base_row in enumerate(range(34, 47)):
         cell = f"H{base_row}"
-        v = variables_tec[i] if i < len(variables_tec) else False
-        _write(ws_tecnico, cell, "Sí" if bool(v) else "No")
+        v = variables_tec[i] if i < len(variables_tec) else ""
+        _write(ws_tecnico, cell, v)
+
+    # ---------------------------
+    # Firmas / constancias (ambas hojas)
+    # ---------------------------
+    fecha_firma = data.get("fecha_firma_texto", "")
+    firma_dep   = data.get("firma_secretaria_texto", "")
+    _write(ws, f"B{56 + shift}", fecha_firma)
+    _write(ws, f"B{58 + shift}", firma_dep)
+    _write(ws_tecnico, "B55", fecha_firma)
+    _write(ws_tecnico, "B57", firma_dep)
 
     # ---------------------------
     # 3) Políticas / Categorías / Subcategorías / Valor destinado 
@@ -495,3 +511,29 @@ def fill_viabilidad_dependencias(base_dir: Path, data: dict, force_index: Option
 
     wb.save(str(out_path))
     return out_path
+
+def _normaliza_resp_str(v: str) -> str:
+    s = (v or "").strip().upper()
+    if s in {"SI", "SÍ"}:
+        return "SI"
+    if s == "NO":
+        return "NO"
+    if s in {"N/A", "NA"}:
+        return "N/A"
+    return s
+
+def _to_respuesta(v) -> str:
+    if isinstance(v, dict):
+        if "RESPUESTA" in v:
+            return _normaliza_resp_str(v["RESPUESTA"])
+        if "respuesta" in v:
+            return _normaliza_resp_str(v["respuesta"])
+        for k in ("valor", "value", "resp", "answer"):
+            if k in v:
+                return _normaliza_resp_str(v[k])
+        return ""
+    if isinstance(v, bool):
+        return "SI" if v else "NO"
+    if isinstance(v, str):
+        return _normaliza_resp_str(v)
+    return ""

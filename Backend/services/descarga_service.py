@@ -60,7 +60,7 @@ def _now_bogota() -> datetime:
         return datetime.now(ZoneInfo("America/Bogota"))
     except Exception:
         return datetime.now()
-
+    
 # =========================
 # Carga base (común) desde BD
 # =========================
@@ -100,8 +100,6 @@ def _fetch_base_context(db: Session, form_id: int) -> dict:
         "duracion_proyecto": getattr(form, "duracion_proyecto", None),
         "cantidad_beneficiarios": getattr(form, "cantidad_beneficiarios", None),
     }
-
-    # Metas ordenadas
     metas = (
         db.query(Meta)
         .join(Metas, Metas.id_meta == Meta.id)
@@ -110,8 +108,6 @@ def _fetch_base_context(db: Session, form_id: int) -> dict:
         .all()
     )
     base["metas"] = [{"numero": m.numero_meta, "nombre": m.nombre_meta} for m in metas]
-
-    # Estructura financiera
     ef_rows = (
         db.query(EstructuraFinanciera)
         .filter(EstructuraFinanciera.id_formulario == form_id)
@@ -121,27 +117,28 @@ def _fetch_base_context(db: Session, form_id: int) -> dict:
         {"anio": r.anio, "entidad": (r.entidad or "").strip().upper(), "valor": r.valor}
         for r in ef_rows
     ]
-
-    # Variables seleccionadas
-    sel_sec_ids = {
-        r.id_variable_sectorial
-        for r in db.query(VariablesSectorialRel)
+    sec_rows = (
+        db.query(VariablesSectorialRel.id_variable_sectorial, VariablesSectorialRel.respuesta)
         .filter(VariablesSectorialRel.id_formulario == form_id)
         .all()
-    }
-    sel_tec_ids = {
-        r.id_variable_tecnico
-        for r in db.query(VariablesTecnicoRel)
+    )
+    sel_sec_ids = {vid for (vid, _resp) in sec_rows}
+    res_sec_map = {vid: (resp or "").strip() for (vid, resp) in sec_rows}
+    ids_sec = [v.id for v in db.query(VariableSectorial).order_by(VariableSectorial.id).all()]
+    base["variables_sectorial"] = [vid in sel_sec_ids for vid in ids_sec][:9] + [""] * max(0, 9 - len(ids_sec))
+    base["variables_sectorial_respuestas"] = [res_sec_map.get(vid, "") for vid in ids_sec][:9] + [""] * max(0, 9 - len(ids_sec))
+
+    # ========== Variables TÉCNICO ==========
+    tec_rows = (
+        db.query(VariablesTecnicoRel.id_variable_tecnico, VariablesTecnicoRel.respuesta)
         .filter(VariablesTecnicoRel.id_formulario == form_id)
         .all()
-    }
-    # Catalogos completos para mapeo a flags por índice
-    ids_sec = [v.id for v in db.query(VariableSectorial).order_by(VariableSectorial.id).all()]
+    )
+    sel_tec_ids = {vid for (vid, _resp) in tec_rows}
+    res_tec_map = {vid: (resp or "").strip() for (vid, resp) in tec_rows}
     ids_tec = [v.id for v in db.query(VariableTecnico).order_by(VariableTecnico.id).all()]
-    base["variables_sectorial_flags"] = [(vid in sel_sec_ids) for vid in ids_sec][:9] + [False] * max(0, 9 - len(ids_sec))
-    base["variables_tecnico_flags"]   = [(vid in sel_tec_ids) for vid in ids_tec][:13] + [False] * max(0, 13 - len(ids_tec))
-
-    # Politicas/Categorias/Subcategorias (en orden de id, limita si la plantilla lo exige)
+    base["variables_tecnico"] = [vid in sel_tec_ids for vid in ids_tec][:13] + [""] * max(0, 13 - len(ids_tec))
+    base["variables_tecnico_respuestas"] = [res_tec_map.get(vid, "") for vid in ids_tec][:13] + [""] * max(0, 13 - len(ids_tec))
     politicas = (
         db.query(Politica.nombre_politica, PoliticasRel.valor_destinado)
         .join(PoliticasRel, PoliticasRel.id_politica == Politica.id)
@@ -150,7 +147,6 @@ def _fetch_base_context(db: Session, form_id: int) -> dict:
         .all()
     )
     base["politicas"] = [{"nombre": p, "valor": v} for (p, v) in politicas]
-
     categorias = (
         db.query(Categoria)
         .join(CategoriasRel, CategoriasRel.id_categoria == Categoria.id)
@@ -159,7 +155,6 @@ def _fetch_base_context(db: Session, form_id: int) -> dict:
         .all()
     )
     base["categorias"] = [{"id": c.id, "nombre": c.nombre_categoria, "id_politica": c.id_politica} for c in categorias]
-
     subcats = (
         db.query(Subcategoria)
         .join(SubcategoriasRel, SubcategoriasRel.id_subcategoria == Subcategoria.id)
@@ -168,8 +163,8 @@ def _fetch_base_context(db: Session, form_id: int) -> dict:
         .all()
     )
     base["subcategorias"] = [{"id": s.id, "nombre": s.nombre_subcategoria, "id_categoria": s.id_categoria} for s in subcats]
-
     return base
+
 
 # =========================
 # EXCELS (uno por función)
@@ -177,6 +172,10 @@ def _fetch_base_context(db: Session, form_id: int) -> dict:
 def excel_concepto_tecnico_sectorial(db: Session, form_id: int) -> Tuple[BytesIO, str]:
     base_dir = Path(__file__).resolve().parents[2]
     data = _context_excel_concepto(_fetch_base_context(db, form_id))
+    now = _now_bogota()
+    data["fecha_firma_texto"] = (f"Para constancia se firma el día {now.day} del mes de {_spanish_month(now.month)} del año {now.year}.")
+    dep_nom = (data.get("nombre_dependencia") or "").strip()
+    data["firma_secretaria_texto"] = f"Firma del Secretario(a)/Jefe de oficina de {dep_nom}."
     out_path = fill_from_template(base_dir=base_dir, data=data)
     bio = BytesIO(out_path.read_bytes())
     bio.seek(0)
@@ -186,10 +185,6 @@ def _context_excel_concepto(base: Dict[str, object]) -> Dict[str, object]:
     metas = base.get("metas", [])
     numero_meta = [m["numero"] for m in metas]
     nombre_meta = [m["nombre"] for m in metas]
-
-    # Flags exactos por plantilla
-    flags_sec = (base.get("variables_sectorial_flags") or [])[:9]
-    flags_tec = (base.get("variables_tecnico_flags") or [])[:13]
 
     data = {
         "nombre_proyecto": base["nombre_proyecto"],
@@ -204,19 +199,18 @@ def _context_excel_concepto(base: Dict[str, object]) -> Dict[str, object]:
         "numero_meta": numero_meta,
         "nombre_meta": nombre_meta,
 
-        "variables_sectorial": flags_sec,
-        "variables_tecnico":  flags_tec,
+        "variables_sectorial_respuestas": base.get("variables_sectorial_respuestas", []),
+        "variables_tecnico_respuestas":  base.get("variables_tecnico_respuestas", []),
 
-        # Política/Categoría/Subcategoría (si tu plantilla usa solo 2, se limita aquí)
         "nombre_politica": [p["nombre"] for p in base.get("politicas", [])][:2],
         "valor_destinado": [p["valor"] for p in base.get("politicas", [])][:2],
         "nombre_categoria": [c["nombre"] for c in base.get("categorias", [])][:2],
         "nombre_focalización": [s["nombre"] for s in base.get("subcategorias", [])][:2],
 
-        # Estructura financiera completa para la hoja que la use
         "estructura_financiera": base.get("estructura_financiera", []),
     }
     return data
+
 
 
 # =========================
