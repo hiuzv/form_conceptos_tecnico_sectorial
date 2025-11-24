@@ -480,16 +480,24 @@ def fill_viabilidad_dependencias(base_dir: Path, data: dict, force_index: Option
             val = lookup.get((anio, ent), 0)
             _write(ws, f"{col_map[yi]}{row}", val)
     
-    ids_sel = set(int(x) for x in data.get("viabilidades_ids", data.get("viabilidades", [])) if x)
+    viabilidades = data.get("viabilidades_respuestas", {}) or {}
     id_to_row = data.get("viabilidad_id_to_row") or {}
     for i in range(1, 7):
         id_to_row.setdefault(i, 32 + i)
     for r in range(33, 39):
         _write(ws, f"S{r}", "NO")
-    for vid in ids_sel:
-        r = id_to_row.get(vid)
-        if r and 33 <= r <= 38:
-            _write(ws, f"S{r}", "SI")
+
+    for vid, resp in viabilidades.items():
+        try:
+            vid_int = int(vid)
+        except Exception:
+            continue
+        row = id_to_row.get(vid_int)
+        if not row or not (33 <= row <= 38):
+            continue
+        val = _normaliza_resp_str(resp)
+        if val in ("SI", "NO", "N/A"):
+            _write(ws, f"S{row}", val)
 
     funcs = data.get("funcionarios", {})
     for itv, f in funcs.items():
@@ -503,6 +511,43 @@ def fill_viabilidad_dependencias(base_dir: Path, data: dict, force_index: Option
     _write(ws, "E48", data.get("nombre_secretario", ""))
     _write(ws, "E49", data.get("dependencia", ""))
     _write(ws, "E50", data.get("fecha_actual", ""))
+
+    # ============================
+    # 7) Insertar METAS (B27:S30)
+    # ============================
+    metas = data.get("metas", []) or []
+    max_base_rows = 4  # filas 27, 28, 29, 30
+    start_row = 27
+    template_row = start_row + max_base_rows - 1  # 30
+
+    total_metas = len(metas)
+    extra = max(0, total_metas - max_base_rows)
+
+    # Si hay más de 4 metas, bajamos todo lo que está después de la fila 30
+    # y clonamos estilo + merges de la fila 30 en las nuevas filas.
+    if extra > 0:
+        # Mover hacia abajo todo lo que está debajo de la fila plantilla (30)
+        _move_down_from_row(ws, start_row=template_row + 1, row_off=extra)
+
+        # Tomamos los merges que hay en la fila 30
+        merges_row = _get_block_merges(ws, template_row, template_row)
+
+        # Copiamos estilo y merges de la fila 30 hacia las filas nuevas
+        for i in range(1, extra + 1):
+            dst_row = template_row + i
+            _copy_row_style(ws, template_row, dst_row)
+            _apply_block_merges(ws, merges_row, dst_start=dst_row, src_start=template_row)
+
+    # Ahora llenamos todas las metas (las 4 base + las extra)
+    for idx, m in enumerate(metas):
+        row = start_row + idx
+
+        _write(ws, f"B{row}", m.get("numero_meta", ""))
+        _write(ws, f"D{row}", m.get("nombre_producto", ""))
+        _write(ws, f"H{row}", m.get("codigo_producto", ""))
+        _write(ws, f"L{row}", m.get("nombre_indicador_producto", ""))
+        _write(ws, f"O{row}", m.get("codigo_indicador_producto", ""))
+        _write(ws, f"S{row}", m.get("nombre_meta", ""))
 
     out_dir = output_dir or base_dir
     out_dir.mkdir(parents=True, exist_ok=True)

@@ -138,7 +138,6 @@ INSERT INTO programa (codigo_programa, nombre_programa, id_sector) VALUES
   (4599, 'Fortalecimiento a la gestión y dirección de la administración pública territorial', 30),
   (1903, 'Inspección, vigilancia y control', 31),
   (1905, 'Salud Pública', 31),
-  (1905, 'Salud pública', 31),
   (1906, 'Aseguramiento y prestación integral de servicios de salud', 31),
   (2201, 'Calidad, cobertura y fortalecimiento de la educación inicial, preescolar, básica y media', 32),
   (2202, 'Calidad y fomento de la educación superior', 32),

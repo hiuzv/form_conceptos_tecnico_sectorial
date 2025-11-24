@@ -40,6 +40,7 @@ interface DatosBasicosDB {
   id_linea_estrategica: ID | null;
   id_programa: ID | null;
   id_sector: ID | null;
+  cargo_responsable: string;
   nombre_secretario: string;
   fuentes: string;
   duracion_proyecto: number;
@@ -114,12 +115,62 @@ function parseDecimal2(raw: string): number | null {
   const num = Number(t);
   return Number.isFinite(num) ? round2(num) : null;
 }
+function sanitizeMoneyInput(raw: string): string {
+  if (!raw) return "";
+  let t = raw.replace(/\s+/g, "");
+  const hadTrailingComma = t.endsWith(",");
+  const parts = t.split(",");
+  if (parts.length > 2) {
+    t = parts[0] + "," + parts.slice(1).join("").replace(/,/g, "");
+  }
+  t = t.replace(/\./g, "");
+  const [intPart, decPart = ""] = t.split(",");
+  let dec = decPart;
+  if (dec.length > 2) dec = dec.slice(0, 2);
+  if (hadTrailingComma && dec === "") {
+    return intPart + ",";
+  }
+  return dec ? `${intPart},${dec}` : intPart;
+}
 function formatMiles(value?: string | number) {
   if (value == null || value === "") return "";
-  const num = typeof value === "string" ? Number(value.replace(/\./g, "").replace(",", ".")) : Number(value);
-  if (isNaN(num)) return value.toString();
-  return num.toLocaleString("es-CO", { minimumFractionDigits: 0 });
+  let num: number | null = null;
+  if (typeof value === "number") {
+    num = value;
+  } else {
+    num = parseDecimal2(value);
+  }
+  if (num == null) return "";
+  const hasDecimals = !Number.isInteger(num);
+  return num.toLocaleString("es-CO", {
+    minimumFractionDigits: hasDecimals ? 2 : 0,
+    maximumFractionDigits: 2,
+  });
 }
+function formatInputMiles(value: string): string {
+  if (!value) return "";
+  const hasComma = value.includes(",");
+  let [intPart, decPart] = value.split(",");
+  intPart = intPart.replace(/\./g, "");
+  intPart = Number(intPart).toLocaleString("es-CO");
+  if (hasComma) {
+    return decPart !== undefined ? `${intPart},${decPart}` : `${intPart},`;
+  }
+
+  return intPart;
+}
+function normalizeMoney(value: string): string {
+  if (!value) return "";
+  value = value.replace(/\./g, "");
+  value = value.replace(",", ".");
+  const num = Number(value);
+  if (isNaN(num)) return "";
+  return num.toLocaleString("es-CO", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+}
+
 function numbersEqual(a: number, b: number) { return Math.abs(a - b) < 0.005; }
 function keyFin(anio: number, entidad: EntidadFin) { return `${anio}|${entidad}`; }
 function getYears(anio_inicio?: number | null): number[] {
@@ -256,6 +307,7 @@ export default function App() {
       id_linea_estrategica: null,
       id_programa: null,
       id_sector: null,
+      cargo_responsable: "",
       nombre_secretario: "",
       fuentes: "",
       duracion_proyecto: 0,
@@ -317,7 +369,45 @@ export default function App() {
         } catch (e) { console.error(e); }
       })();
   }, [vista]);
+  
+  // Variables (sectorial / técnico)
+  useEffect(() => {
+    if (vista !== "form" || step !== 4) return;
 
+    (async () => {
+      try {
+        const id = formId ?? (await ensureFormId().catch(() => null));
+        if (!id) return;
+
+        const [vsr, vtr] = await Promise.all([
+          fetchJson(`/proyecto/formulario/${id}/variables-sectorial-respuestas`),
+          fetchJson(`/proyecto/formulario/${id}/variables-tecnico-respuestas`),
+        ]);
+
+        setVarsSectorialResp(vsr);
+        setVarsTecnicoResp(vtr);
+      } catch (e) {
+        console.error("Error cargando respuestas de variables", e);
+      }
+    })();
+  }, [vista, step, formId]);
+
+  // Viabilidades
+  useEffect(() => {
+    if (vista !== "form" || step !== 6) return;
+
+    (async () => {
+      try {
+        const id = formId ?? (await ensureFormId().catch(() => null));
+        if (!id) return;
+
+        const vbr = await fetchJson(`/proyecto/formulario/${id}/viabilidades-respuestas`);
+        setViabResp(vbr);
+      } catch (e) {
+        console.error("Error cargando respuestas de viabilidad", e);
+      }
+    })();
+  }, [vista, step, formId]);
 
   // Sectores por línea
   useEffect(() => {
@@ -463,6 +553,7 @@ export default function App() {
         nombre_proyecto: datos.datos_basicos.nombre_proyecto?.trim() ?? "",
         cod_id_mga: Number(datos.datos_basicos.cod_id_mga || 0),
         id_dependencia: datos.datos_basicos.id_dependencia,
+        cargo_responsable: datos.datos_basicos.cargo_responsable ?? "",
         nombre_secretario: datos.datos_basicos.nombre_secretario ?? "",
         fuentes: datos.datos_basicos.fuentes ?? "",
         duracion_proyecto: Number(datos.datos_basicos.duracion_proyecto || 0),
@@ -708,6 +799,7 @@ export default function App() {
           id_linea_estrategica: r.id_linea_estrategica ?? prev.datos_basicos.id_linea_estrategica ?? null,
           id_sector:            r.id_sector            ?? prev.datos_basicos.id_sector ?? null,
           id_programa:          r.id_programa          ?? prev.datos_basicos.id_programa ?? null,
+          cargo_responsable:    r.cargo_responsable    ?? prev.datos_basicos.cargo_responsable ?? "",
           nombre_secretario:    r.nombre_secretario    ?? prev.datos_basicos.nombre_secretario ?? "",
           fuentes:              r.fuentes              ?? prev.datos_basicos.fuentes ?? "",
           duracion_proyecto:    r.duracion_proyecto    ?? prev.datos_basicos.duracion_proyecto ?? 0,
@@ -777,6 +869,7 @@ export default function App() {
         id_linea_estrategica: null,
         id_programa: null,
         id_sector: null,
+        cargo_responsable: "",
         nombre_secretario: "",
         fuentes: "",
         duracion_proyecto: 0,
@@ -1022,7 +1115,27 @@ export default function App() {
                 />
               </Field>
 
-              <Field label="Nombre Secretario">
+              <Field label="Cargo responsable">
+                <select
+                  className="h-10 w-full rounded-md border px-3 text-sm"
+                  value={datos.datos_basicos.cargo_responsable}
+                  onChange={(e) =>
+                    setDatos((p) => ({
+                      ...p,
+                      datos_basicos: {
+                        ...p.datos_basicos,
+                        cargo_responsable: e.target.value,
+                      },
+                    }))
+                  }
+                >
+                  <option value="">Selecciona…</option>
+                  <option value="JEFE DE OFICINA">Jefe de Oficina</option>
+                  <option value="SECRETARIO(A)">Secretario(a)</option>
+                </select>
+              </Field>
+
+              <Field label="Nombre Responsable">
                 <Input type="text" value={datos.datos_basicos.nombre_secretario}
                   onChange={(e) => setDatos(p => ({ ...p, datos_basicos: { ...p.datos_basicos, nombre_secretario: e.target.value } }))} />
               </Field>
@@ -1119,7 +1232,7 @@ export default function App() {
                                     <input
                                       type="text"
                                       className="w-full rounded-md border px-2 py-1 text-right bg-slate-100 text-slate-700 font-bold"
-                                      value={depVal === 0 ? "" : formatMiles(depVal.toFixed(0))}
+                                      value={depVal === 0 ? "" : formatMiles(depVal)}
                                       disabled
                                       readOnly
                                       title="Valor calculado: PROPIOS + todos los SGP"
@@ -1127,7 +1240,6 @@ export default function App() {
                                   </td>
                                 );
                               }
-
                               const raw = datos.estructura_financiera_ui[k] ?? "";
                               return (
                                 <td key={k} className="px-2 py-1">
@@ -1139,10 +1251,10 @@ export default function App() {
                                       "w-full rounded-md border px-2 py-1 text-right",
                                       isSub && "italic text-right pr-6"
                                     )}
-                                    value={formatMiles(raw)}
+                                    value={formatInputMiles(raw ?? "")}
                                     onChange={(e) => {
-                                      const clean = e.target.value.replace(/\./g, "");
-                                      setDatos(p => ({
+                                      const clean = sanitizeMoneyInput(e.target.value);
+                                      setDatos((p) => ({
                                         ...p,
                                         estructura_financiera_ui: {
                                           ...p.estructura_financiera_ui,
@@ -1151,12 +1263,12 @@ export default function App() {
                                       }));
                                     }}
                                     onBlur={(e) => {
-                                      const n = parseDecimal2(e.target.value);
-                                      setDatos(p => ({
+                                      const clean = sanitizeMoneyInput(e.target.value);
+                                      setDatos((p) => ({
                                         ...p,
                                         estructura_financiera_ui: {
                                           ...p.estructura_financiera_ui,
-                                          [k]: n ? n.toString() : "",
+                                          [k]: clean,
                                         },
                                       }));
                                     }}
@@ -1327,27 +1439,61 @@ export default function App() {
 
                   <div>
                     <Label>Valor destinado</Label>
-                    <Input
-                      type="text"
-                      inputMode="decimal"
-                      placeholder="0,00"
-                      value={row.valor_ui ?? (row.valor_destinado ? row.valor_destinado.toFixed(2) : "")}
-                      onChange={(e) => setDatos((p) => { const arr = [...p.politicas]; arr[idx] = { ...arr[idx], valor_ui: e.target.value }; return { ...p, politicas: arr }; })}
-                      onBlur={(e) => {
-                        const num = parseDecimal2(e.target.value);
-                        setDatos((p) => {
-                          const arr = [...p.politicas];
-                          if (num !== null) arr[idx] = { ...arr[idx], valor_destinado: num, valor_ui: undefined };
-                          else arr[idx] = { ...arr[idx], valor_ui: e.target.value };
-                          return { ...p, politicas: arr };
-                        });
-                      }}
-                    />
-                    <div className="text-[11px] text-slate-500 mt-1">
-                      {toMoney(row.valor_ui !== undefined ? (parseDecimal2(row.valor_ui) ?? row.valor_destinado) : row.valor_destinado)}
-                    </div>
+                    {(() => {
+                      const uiRaw =
+                        row.valor_ui ??
+                        (row.valor_destinado != null
+                          ? row.valor_destinado.toString().replace(".", ",")
+                          : "");
+                      return (
+                        <>
+                          <Input
+                            type="text"
+                            inputMode="decimal"
+                            placeholder="0,00"
+                            value={formatInputMiles(uiRaw)}
+                            onChange={(e) => {
+                              const clean = sanitizeMoneyInput(e.target.value);
+                              setDatos((p) => {
+                                const arr = [...p.politicas];
+                                arr[idx] = {
+                                  ...arr[idx],
+                                  valor_ui: clean,
+                                };
+                                return { ...p, politicas: arr };
+                              });
+                            }}
+                            onBlur={(e) => {
+                              const num = parseDecimal2(e.target.value);
+                              setDatos((p) => {
+                                const arr = [...p.politicas];
+                                if (num !== null) {
+                                  arr[idx] = {
+                                    ...arr[idx],
+                                    valor_destinado: num,
+                                    valor_ui: undefined,
+                                  };
+                                } else {
+                                  arr[idx] = {
+                                    ...arr[idx],
+                                    valor_ui: e.target.value,
+                                  };
+                                }
+                                return { ...p, politicas: arr };
+                              });
+                            }}
+                          />
+                          <div className="text-[11px] text-slate-500 mt-1">
+                            {toMoney(
+                              row.valor_ui !== undefined
+                                ? parseDecimal2(row.valor_ui) ?? row.valor_destinado
+                                : row.valor_destinado
+                            )}
+                          </div>
+                        </>
+                      );
+                    })()}
                   </div>
-
                   <div className="md:col-span-4 text-right">
                     <Button size="icon" variant="ghost" onClick={()=> setDatos(p=> ({ ...p, politicas: p.politicas.filter((_,i)=> i!==idx) }))}>
                       <Trash2 className="h-4 w-4"/>

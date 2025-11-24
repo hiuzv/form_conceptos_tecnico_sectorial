@@ -21,6 +21,7 @@ from Backend.models import (
 )
 from Backend.services.excel_fill import fill_from_template, fill_viabilidad_dependencias, fill_cadena_valor
 from Backend.services.word_fill import fill_docx
+from Backend.services import proyecto_service
 from num2words import num2words as n2w
 from decimal import Decimal, ROUND_HALF_UP
 
@@ -95,6 +96,7 @@ def _fetch_base_context(db: Session, form_id: int) -> dict:
         "codigo_programa": prog_cod or "",
         "nombre_programa": prog_nom or "",
         "nombre_linea_estrategica": linea_nom or "",
+        "cargo_responsable": form.cargo_responsable,
         "nombre_secretario": form.nombre_secretario,
         "fuentes": getattr(form, "fuentes", None),
         "duracion_proyecto": getattr(form, "duracion_proyecto", None),
@@ -226,7 +228,7 @@ def word_carta(db: Session, form_id: int) -> Tuple[BytesIO, str]:
     base = _fetch_base_context(db, form_id)
     ctx = _context_word_common(base)
     ctx["gobernador"] = _persona_por_rol(db, "Gobernador")
-    ctx["jefe_oap"]   = _persona_por_rol(db, "Jefe OAP")
+    ctx["jefe_oap"]   = _persona_por_rol(db, "Secretaria de Planeación")
     pl = db.query(PeriodoLema).order_by(PeriodoLema.id.desc()).first()
     if pl:
         ctx["Periodo"] = f"{pl.inicio_periodo}-{pl.fin_periodo}"
@@ -271,7 +273,8 @@ def _context_word_common(base: Dict[str, object]) -> Dict[str, object]:
         "codigo_programa": base["codigo_programa"],
         "cod_programa":    base["codigo_programa"],
         "nombre_linea_estrategica": base["nombre_linea_estrategica"],
-
+        
+        "cargo_responsable": base.get("cargo_responsable") or "",
         "nombre_secretario": base.get("nombre_secretario"),
         "oficina_secretaria": base.get("nombre_dependencia") or "",
         "fuentes": base.get("fuentes") or "",
@@ -290,7 +293,33 @@ def _context_word_common(base: Dict[str, object]) -> Dict[str, object]:
         "anio": now.year,
         "año":  now.year,
     }
-    
+
+    ef = base.get("estructura_financiera", [])
+
+    total_propios = 0
+    total_sgp = 0
+
+    for r in ef:
+        ent = (r.get("entidad") or "").strip().upper()
+        val = float(r.get("valor") or 0)
+
+        if ent == "PROPIOS":
+            total_propios += val
+
+        if ent.startswith("SGP_"):
+            total_sgp += val
+
+    if total_propios > 0 and total_sgp > 0:
+        recursos = "Recursos propios y Sistema General de Participaciones"
+    elif total_propios > 0:
+        recursos = "Recursos propios"
+    elif total_sgp > 0:
+        recursos = "Sistema General de Participaciones"
+    else:
+        recursos = ""
+
+    ctx["recursos"] = recursos
+
     dur = int(base.get("duracion_proyecto") or 0)
     ctx["duracion_numero"] = dur
     ctx["duracion_texto"]  = n2w(dur, lang="es").capitalize() if dur > 0 else ""
@@ -416,6 +445,7 @@ def _merge_ctx_carta(db, form_id: int) -> dict:
     ctx["costo_numero"] = _fmt(total_general).replace(",", "")
     ctx["costo_texto"] = numero_a_texto(total_general)
 
+        # --- 13) Metas / productos / indicadores asociados al formulario ---
     rows = db.execute(text("""
         SELECT m.numero_meta, m.nombre_meta,
                m.codigo_producto, m.nombre_producto,
@@ -425,6 +455,8 @@ def _merge_ctx_carta(db, form_id: int) -> dict:
         WHERE rel.id_formulario = :fid
         ORDER BY m.numero_meta
     """), {"fid": form_id}).fetchall()
+
+    # Construimos el contexto base de metas
     metas_ctx = [{
         "cod_meta": r[0],
         "meta": r[1],
@@ -433,6 +465,21 @@ def _merge_ctx_carta(db, form_id: int) -> dict:
         "cod_indicador_producto": r[4],
         "indicador_producto": r[5],
     } for r in rows]
+
+    # 🔹 DEDUPLICAR: nos quedamos solo con combinaciones únicas
+    # (meta, producto, indicador) para evitar duplicados en la carta
+    vistos = set()
+    metas_unicas = []
+    for m in metas_ctx:
+        llave = (m["cod_meta"], m["cod_producto"], m["cod_indicador_producto"])
+        if llave in vistos:
+            continue
+        vistos.add(llave)
+        metas_unicas.append(m)
+
+    metas_ctx = metas_unicas
+
+    # Cargamos también variables enumeradas por compatibilidad con la plantilla
     for i, m in enumerate(metas_ctx, start=1):
         ctx[f"numero_meta_{i}"] = m["cod_meta"]
         ctx[f"nombre_meta_{i}"] = m["meta"]
@@ -442,7 +489,11 @@ def _merge_ctx_carta(db, form_id: int) -> dict:
         ctx[f"producto_{i}"] = m["producto"]
         ctx[f"cod_indicador_producto_{i}"] = m["cod_indicador_producto"]
         ctx[f"indicador_producto_{i}"] = m["indicador_producto"]
+
+    # Contexto de metas que usa word_fill._expand_table1_and_table3
     ctx["__metas_ctx__"] = metas_ctx
+
+    # Variables "planas" (sin índice) para el primer producto/meta
     if metas_ctx:
         first = metas_ctx[0]
         ctx["cod_meta"] = first["cod_meta"]
@@ -451,7 +502,9 @@ def _merge_ctx_carta(db, form_id: int) -> dict:
         ctx["cod_producto"] = first["cod_producto"]
         ctx["indicador_producto"] = first["indicador_producto"]
         ctx["cod_indicador_producto"] = first["cod_indicador_producto"]
+
     return ctx
+
 
 def _render_word(key: str, form_id: int, context: Dict[str, object]) -> Tuple[BytesIO, str]:
     if key not in TEMPLATE_MAP:
@@ -496,36 +549,63 @@ def excel_cadena_valor(db: Session, form_id: int) -> Tuple[BytesIO, str]:
 def excel_viabilidad_dependencias(db: Session, form_id: int) -> Tuple[BytesIO, str]:
     base_dir = Path(__file__).resolve().parents[2]
     base = _fetch_base_context(db, form_id)
+
+    # 1) Metas asociadas al formulario
+    metas = [
+        {
+            "numero_meta": m.numero_meta,
+            "nombre_meta": m.nombre_meta,
+            "codigo_producto": m.codigo_producto,
+            "nombre_producto": m.nombre_producto,
+            "codigo_indicador_producto": m.codigo_indicador_producto,
+            "nombre_indicador_producto": m.nombre_indicador_producto,
+        }
+        for m in (
+            db.query(Meta)
+            .join(Metas, Metas.id_meta == Meta.id)
+            .filter(Metas.id_formulario == form_id)
+            .order_by(Meta.numero_meta)
+            .all()
+        )
+    ]
+
     now = _now_bogota()
 
+    # 2) Estructura financiera → años y lookup
     ef = base.get("estructura_financiera", [])
     years = sorted({r["anio"] for r in ef if r.get("anio")})[:4]
-    while len(years) < 4: years.append(None)
+    while len(years) < 4:
+        years.append(None)
 
-    ENT_ORDER = [
-        "PROPIOS", "SGP_LIBRE_INVERSION", "SGP_LIBRE_DESTINACION", "SGP_APSB",
-        "SGP_EDUCACION", "SGP_ALIMENTACION_ESCOLAR", "SGP_CULTURA",
-        "SGP_DEPORTE", "SGP_SALUD", "MUNICIPIO", "NACION", "OTROS"
-    ]
-    lookup = {(r["anio"], r["entidad"].strip().upper()): r["valor"] for r in ef if r.get("entidad")}
+    lookup = {
+        (r["anio"], (r["entidad"] or "").strip().upper()): r["valor"]
+        for r in ef
+        if r.get("entidad")
+    }
 
-    viabilidades = [v.id for v in db.query(Viabilidad)
-    .join(Viabilidades, Viabilidades.id_viabilidad == Viabilidad.id)
-    .filter(Viabilidades.id_formulario == form_id)
-    .all()]
-    funcs = {f.id_tipo_viabilidad: f for f in db.query(FuncionarioViabilidad)
-        .filter(FuncionarioViabilidad.id_formulario == form_id).all()}
+    # 3) Viabilidades seleccionadas
+    viabilidades_respuestas = proyecto_service.leer_respuestas_viab(db, form_id)
 
+    # 4) Funcionarios que certifican viabilidad
+    funcs = {
+        f.id_tipo_viabilidad: f
+        for f in db.query(FuncionarioViabilidad)
+        .filter(FuncionarioViabilidad.id_formulario == form_id)
+        .all()
+    }
+
+    # 5) Armar data para el llenado del Excel
     data = {
         "dependencia": base["nombre_dependencia"],
         "nombre_proyecto": base["nombre_proyecto"],
         "cod_id_mga": base["cod_id_mga"],
         "anios": years,
         "estructura_financiera": lookup,
-        "viabilidades": viabilidades,
+        "viabilidades_respuestas": viabilidades_respuestas,
         "funcionarios": funcs,
         "nombre_secretario": base["nombre_secretario"],
         "fecha_actual": f"{now.day} de {_spanish_month(now.month)} del {now.year}",
+        "metas": metas,
     }
 
     out_path = fill_viabilidad_dependencias(base_dir=base_dir, data=data)

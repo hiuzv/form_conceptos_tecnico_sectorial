@@ -102,6 +102,7 @@ class FormularioCreate(BaseModel):
     valores_politicas: List[ValorMoneda] = []
     categorias: List[int] = []
     subcategorias: List[int] = []
+    cargo_responsable: Optional[str] = None
 
 class ViabilidadRead(BaseModel):
     id: int
@@ -145,7 +146,8 @@ class FormularioRead(BaseModel):
     fuentes: Optional[str] = None
     duracion_proyecto: Optional[int] = None
     cantidad_beneficiarios: Optional[int] = None
-    
+    cargo_responsable: Optional[str] = None
+
 class ProyectoListRead(BaseModel):
     nombre: str
     cod_id_mga: int
@@ -162,6 +164,7 @@ class FormularioUpsertBasicos(BaseModel):
     fuentes: Optional[str] = None
     duracion_proyecto: Optional[int] = None
     cantidad_beneficiarios: Optional[int] = None
+    cargo_responsable: Optional[str] = None
 
 class IdsIn(BaseModel):
     ids: List[int] = []

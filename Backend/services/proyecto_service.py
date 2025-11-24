@@ -98,6 +98,7 @@ def crear_formulario(db: Session, data: schemas.FormularioCreate) -> Formulario:
         id_programa=data.id_programa,
         id_sector=data.id_sector,
         nombre_secretario=data.nombre_secretario,
+        cargo_responsable=data.cargo_responsable,
     )
     db.add(form)
     db.flush()

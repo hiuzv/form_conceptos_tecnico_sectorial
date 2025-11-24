@@ -9,22 +9,19 @@ from docx.table import Table
 
 __all__ = ["fill_docx"]
 
-PLACEHOLDER_RX = re.compile(r"\{\{\s*([^{}|]+?)\s*(?:\|\s*([a-z0-9_]+)\s*)?\}\}")
-_NUM_META_RX = re.compile(r"\{\{\s*(?:cod_?meta|meta)(?:_(\d+))\s*\}\}", re.IGNORECASE)
+# =========================
+#  Placeholders y formatos
+# =========================
 
-def _has_numbered_meta_placeholders(doc: Document) -> bool:
-    for tbl in doc.tables:
-        for row in tbl.rows:
-            for cell in row.cells:
-                if _NUM_META_RX.search(cell.text or ""):
-                    return True
-    for p in doc.paragraphs:
-        if _NUM_META_RX.search(p.text or ""):
-            return True
-    return False
+PLACEHOLDER_RX = re.compile(
+    r"\{\{\s*([^{}|]+?)\s*(?:\|\s*([a-z0-9_]+)\s*)?\}\}"
+)
 
 def _strip_accents(s: str) -> str:
-    return "".join(c for c in unicodedata.normalize("NFKD", s) if not unicodedata.combining(c))
+    return "".join(
+        c for c in unicodedata.normalize("NFKD", s)
+        if not unicodedata.combining(c)
+    )
 
 def _norm_key(s: str) -> str:
     s = str(s or "")
@@ -59,41 +56,78 @@ _FORMATTERS: Dict[str, Callable[[object], str]] = {
     "dec2": _fmt_dec2,
 }
 
+# =========================
+#  Lookup de contexto
+#  (SIN metas/productos)
+# =========================
+
+# Prefijos que NO queremos reemplazar todavía
+_META_PROD_PREFIXES = [
+    "meta",                # meta, meta_1, meta_indicador, etc.
+    "cod_meta",
+    "numero_meta",
+    "nombre_meta",
+    "producto",
+    "cod_producto",
+    "indicador_producto",
+    "cod_indicador_producto",
+    "meta_indicador",
+]
+
+def _is_meta_prod_key(nk: str) -> bool:
+    return any(nk.startswith(p) for p in _META_PROD_PREFIXES)
+
 def _build_lookup(context: Dict[str, object]) -> Dict[str, str]:
     out: Dict[str, str] = {}
+
     for k, v in (context or {}).items():
-        nk = _norm_key(k)
+        nk = _norm_key(k)              # ej: "cod_meta_1" -> "cod_meta_1"
         out[nk] = "" if v is None else str(v)
-        
+
+        # Alias: nombre_meta_X -> meta_X
         if nk.startswith("nombre_meta_"):
             suf = nk.split("nombre_meta_")[-1]
             out[_norm_key(f"meta_{suf}")] = out[nk]
+
+        # Alias: numero_meta_X -> cod_meta_X
         if nk.startswith("numero_meta_"):
             suf = nk.split("numero_meta_")[-1]
             out[_norm_key(f"cod_meta_{suf}")] = out[nk]
-        # dia/día espejos
+
+        # Espejos día/dia
         if "dia" in nk and "texto" in nk:
             out[nk.replace("dia", "día")] = out[nk]
         if "día" in k or "dia" in k:
             out[_norm_key(k.replace("día", "dia"))] = out[nk]
             out[_norm_key(k.replace("dia", "día"))] = out[nk]
+
     return out
+
+# =========================
+#  Reemplazo de texto
+# =========================
 
 def _replace_text(text: str, lookup: Dict[str, str]) -> str:
     def repl(m):
         raw_key = m.group(1)
         raw_fmt = m.group(2)
         nk = _norm_key(raw_key)
+
         if nk not in lookup:
+            # si no está en lookup, dejamos el placeholder tal cual
             return m.group(0)
+
         val = lookup[nk]
         if raw_fmt and raw_fmt in _FORMATTERS:
             try:
-                num_val = Decimal(val.replace(".", "").replace("$", "").replace(",", "."))
+                num_val = Decimal(
+                    val.replace(".", "").replace("$", "").replace(",", ".")
+                )
             except Exception:
                 num_val = val
             return _FORMATTERS[raw_fmt](num_val)
         return val
+
     return PLACEHOLDER_RX.sub(repl, text)
 
 def _replace_in_run_level(paragraph, lookup: Dict[str, str]) -> bool:
@@ -127,42 +161,62 @@ def _iter_all_paragraphs(doc: Document):
                 for p in cell.paragraphs:
                     yield p
 
-def fill_docx(
-    base_dir: Path,
-    template_name: str,
-    context: Dict[str, object],
-    output_name: Optional[str] = None,
-    output_dir: Optional[Path] = None,
-) -> Path:
-    template_path = base_dir / template_name
-    if not template_path.exists():
-        raise FileNotFoundError(f"No se encontró el template: {template_path}")
-    doc = Document(str(template_path))
-    metas = context.get("__metas_ctx__") or []
-    use_numbered = _has_numbered_meta_placeholders(doc)
-    if metas:
-        _expand_table1_and_table3(doc, metas, use_numbered=use_numbered)
-    lookup = _build_lookup(context)
-    for p in _iter_all_paragraphs(doc):
-        _replace_in_paragraph(p, lookup)
-    for tbl in doc.tables:
-        for row in tbl.rows:
-            for cell in row.cells:
-                for p in cell.paragraphs:
-                    _replace_in_paragraph(p, lookup)
-    out_dir = output_dir or base_dir
-    out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / (output_name or f"filled_{template_name}")
-    doc.save(str(out_path))
-    return out_path
+# =========================
+#  Utilidades de tablas
+# =========================
 
-def _replace_text_runs_in_cell(cell, repl: dict):
+def _renumber_placeholders_in_cell(cell, idx: int):
+    META_KEYS = {
+        "cod_meta",
+        "meta",
+        "numero_meta",
+        "nombre_meta",
+        "producto",
+        "cod_producto",
+        "indicador_producto",
+        "cod_indicador_producto",
+        "meta_indicador",
+    }
+    META_KEYS_NORM = {_norm_key(k) for k in META_KEYS}
+
+    def renumber_text(text: str) -> str:
+        def repl(m):
+            raw_key = m.group(1)   # "cod_meta_1" o "meta" o "producto_1"
+            raw_fmt = m.group(2)   # formato opcional, ej: "moneda"
+            key = raw_key.strip()
+
+            # separar posible sufijo numérico
+            parts = key.split("_")
+            base = key
+            if parts[-1].isdigit():
+                base = "_".join(parts[:-1])  # "cod_meta_1" -> "cod_meta"
+
+            base_norm = _norm_key(base)
+
+            # solo tocamos las claves de metas/productos
+            if base_norm in META_KEYS_NORM:
+                new_key = f"{base}_{idx}"
+            else:
+                new_key = key
+
+            if raw_fmt:
+                return "{{" + new_key + "|" + raw_fmt + "}}"
+            else:
+                return "{{" + new_key + "}}"
+
+        return PLACEHOLDER_RX.sub(repl, text)
+
     for p in cell.paragraphs:
-        for r in p.runs:
-            t = r.text or ""
-            for k, v in repl.items():
-                t = t.replace(k, "" if v is None else str(v))
-            r.text = t
+        full_text = "".join(r.text or "" for r in p.runs)
+        new_text = renumber_text(full_text)
+
+        if p.runs:
+            p.runs[0].text = new_text
+            for r in p.runs[1:]:
+                r.text = ""
+        else:
+            p.add_run(new_text)
+
 
 def _clone_row_after(row, table):
     tr = row._tr
@@ -179,89 +233,96 @@ def _insert_table_after(existing_table):
     src_tbl.addnext(new_tbl_elm)
     return Table(new_tbl_elm, existing_table._parent)
 
-def _expand_table1_and_table3(doc: Document, metas: list, use_numbered: bool = False):
-    if not metas or len(metas) == 0:
-        return
-    t1 = doc.tables[0] if len(doc.tables) >= 1 else None
-    if t1:
-        template_row = None
-        for row in t1.rows:
-            row_text = " || ".join(c.text for c in row.cells)
-            if ("{{cod_meta" in row_text) or ("{{meta" in row_text) or ("{{ numero_meta" in row_text) or ("{{ nombre_meta" in row_text):
-                template_row = row
-                break
-        if template_row:
-            anchor = template_row
-            for _ in range(len(metas) - 1):
-                anchor = _clone_row_after(anchor, t1)
-            block_rows = []
-            take = len(metas)
-            seen = False
-            for row in t1.rows:
-                row_text = " || ".join(c.text for c in row.cells)
-                if not seen and (("{{cod_meta" in row_text) or ("{{meta" in row_text) or ("{{ numero_meta" in row_text) or ("{{ nombre_meta" in row_text)):
-                    seen = True
-                if seen and take > 0:
-                    block_rows.append(row)
-                    take -= 1
-                if take == 0:
-                    break
+# =========================
+#  Expansión de CARTA:
+#  Metas y Productos
+# =========================
 
-            for idx, row in enumerate(block_rows, start=1):
-                m = metas[idx-1]
-                repl = {
-                    "{{cod_meta}}": m.get("cod_meta", ""),
-                    "{{meta}}": m.get("meta", ""),
-                    "{{numero_meta}}": m.get("cod_meta", ""),
-                    "{{nombre_meta}}": m.get("meta", ""),
-                    f"{{{{cod_meta_{idx}}}}}": m.get("cod_meta", ""),
-                    f"{{{{meta_{idx}}}}}": m.get("meta", ""),
-                    f"{{{{numero_meta_{idx}}}}}": m.get("cod_meta", ""),
-                    f"{{{{nombre_meta_{idx}}}}}": m.get("meta", ""),
-                }
-                for c in row.cells:
-                    _replace_text_runs_in_cell(c, repl)
-    t3 = doc.tables[2] if len(doc.tables) >= 3 else None
-    if t3:
-        m1 = metas[0]
-        repl1 = {
-            "{{producto}}": m1.get("producto", ""),
-            "{{cod_producto}}": m1.get("cod_producto", ""),
-            "{{indicador_producto}}": m1.get("indicador_producto", ""),
-            "{{cod_indicador_producto}}": m1.get("cod_indicador_producto", ""),
-            "{{meta_indicador}}": "",
-            "{{cod_meta}}": m1.get("cod_meta", ""),
-            "{{meta}}": m1.get("meta", ""),
-            "{{producto_1}}": m1.get("producto", ""),
-            "{{cod_producto_1}}": m1.get("cod_producto", ""),
-            "{{indicador_producto_1}}": m1.get("indicador_producto", ""),
-            "{{cod_indicador_producto_1}}": m1.get("cod_indicador_producto", ""),
-            "{{cod_meta_1}}": m1.get("cod_meta", ""),
-            "{{meta_1}}": m1.get("meta", ""),
-        }
-        for row in t3.rows:
+def expand_metas_in_carta(doc: Document, total_metas: int) -> None:
+    if total_metas <= 1:
+        return
+
+    for tbl in doc.tables:
+        meta_rows = []
+        for row in tbl.rows:
+            text = " || ".join(c.text for c in row.cells)
+            if "{{cod_meta_1}}" in text or "{{meta_1}}" in text:
+                meta_rows.append(row)
+
+        if not meta_rows:
+            continue
+
+        plantilla = meta_rows
+        anchor = meta_rows[-1]
+
+        for i in range(2, total_metas + 1):
+            for r in plantilla:
+                new_r = _clone_row_after(anchor, tbl)
+                anchor = new_r
+                for cell in new_r.cells:
+                    _renumber_placeholders_in_cell(cell, i)
+
+        # solo queremos procesar la primera tabla que tenga este bloque
+        break
+
+def expand_productos_in_carta(doc: Document, total_productos: int) -> None:
+    if total_productos <= 1:
+        return
+
+    tablas_detectadas = []
+
+    for tbl in doc.tables:
+        texto_tabla = " ".join(
+            c.text for row in tbl.rows for c in row.cells
+        )
+        if "{{producto_1}}" in texto_tabla:
+            tablas_detectadas.append(tbl)
+
+    if not tablas_detectadas:
+        return
+
+    base_tbl = tablas_detectadas[0]
+
+    duplicated_tables = [base_tbl]
+    anchor = base_tbl
+    for _ in range(2, total_productos + 1):
+        new_tbl = _insert_table_after(anchor)
+        duplicated_tables.append(new_tbl)
+        anchor = new_tbl
+
+    for idx, tbl in enumerate(duplicated_tables, start=1):
+        for row in tbl.rows:
             for cell in row.cells:
-                _replace_text_runs_in_cell(cell, repl1)
-        anchor_tbl = t3
-        for i in range(1, len(metas)):
-            mi = metas[i]
-            new_tbl = _insert_table_after(anchor_tbl)
-            repl = {
-                "{{producto}}": mi.get("producto", ""),
-                "{{cod_producto}}": mi.get("cod_producto", ""),
-                "{{indicador_producto}}": mi.get("indicador_producto", ""),
-                "{{cod_indicador_producto}}": mi.get("cod_indicador_producto", ""),
-                "{{meta_indicador}}": "",
-                "{{cod_meta}}": mi.get("cod_meta", ""),
-                "{{meta}}": mi.get("meta", ""),
-                f"{{{{producto_{i+1}}}}}": mi.get("producto", ""),
-                f"{{{{cod_producto_{i+1}}}}}": mi.get("cod_producto", ""),
-                f"{{{{indicador_producto_{i+1}}}}}": mi.get("indicador_producto", ""),
-                f"{{{{cod_indicador_producto_{i+1}}}}}": mi.get("cod_indicador_producto", ""),
-                f"{{{{cod_meta_{i+1}}}}}": mi.get("cod_meta", ""),
-                f"{{{{meta_{i+1}}}}}": mi.get("meta", ""),
-            }
-            for row in new_tbl.rows:
-                for cell in row.cells:
-                    _replace_text_runs_in_cell(cell, repl)
-            anchor_tbl = new_tbl
+                _renumber_placeholders_in_cell(cell, idx)
+
+# =========================
+#  FUNCIÓN PRINCIPAL
+# =========================
+
+def fill_docx(base_dir: Path, template_name: str, context: Dict[str, object], output_name: Optional[str] = None, output_dir: Optional[Path] = None,) -> Path:
+    template_path = base_dir / template_name
+    if not template_path.exists():
+        raise FileNotFoundError(f"No se encontró el template: {template_path}")
+
+    doc = Document(str(template_path))
+
+    # --- 1) Expansión de metas/productos SOLO si viene __metas_ctx__
+    metas_ctx = context.get("__metas_ctx__") or []
+    total_metas = len(metas_ctx)
+
+    if total_metas > 0:
+        expand_metas_in_carta(doc, total_metas)
+        expand_productos_in_carta(doc, total_metas)  # 1 producto por meta
+
+    # --- 2) Reemplazo del resto de variables (NO metas/productos)
+    lookup = _build_lookup(context)
+
+    for p in _iter_all_paragraphs(doc):
+        _replace_in_paragraph(p, lookup)
+
+    # --- 3) Guardar
+    out_dir = output_dir or base_dir
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_path = out_dir / (output_name or f"filled_{template_name}")
+    doc.save(str(out_path))
+    return out_path

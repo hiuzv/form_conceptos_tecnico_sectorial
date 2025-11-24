@@ -61,6 +61,7 @@ CREATE TABLE formulario (
     id_linea_estrategica INT REFERENCES linea_estrategica,
     id_programa INT REFERENCES programa,
     id_sector INT REFERENCES sector,
+    cargo_responsable TEXT,
     nombre_secretario TEXT,
     fuentes TEXT,
     duracion_proyecto INT,
