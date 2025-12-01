@@ -445,6 +445,18 @@ def fill_cadena_valor(base_dir: Path, data: dict, force_index: Optional[int] = N
     _write(ws, "N2", data.get("cod_id_mga", ""))
     _write(ws, "A21", data.get("fecha_actual", ""))
 
+    # =======================
+    #   Metas en B3 (multilínea)
+    # =======================
+    metas = data.get("metas", [])
+    lineas = []
+    for m in metas:
+        num = m.get("numero_meta", "")
+        nom = m.get("nombre_meta", "")
+        lineas.append(f"{num} - {nom}")
+    texto_metas = "\n".join(lineas) if lineas else ""
+    _write(ws, "B3", texto_metas)
+
     out_dir = output_dir or base_dir
     out_dir.mkdir(parents=True, exist_ok=True)
     n = force_index if force_index is not None else _next_sequential_index(out_dir)
@@ -461,6 +473,7 @@ def fill_viabilidad_dependencias(base_dir: Path, data: dict, force_index: Option
     _write(ws, "G3", data.get("dependencia", ""))
     _write(ws, "G5", data.get("nombre_proyecto", ""))
     _write(ws, "G6", data.get("cod_id_mga", ""))
+    _write(ws, "G4", data.get("proyecto_fortalecimiento", "NO"))
 
     anios = data.get("anios", [])
     for i, c in enumerate(["D9", "G9", "J9", "M9"]):

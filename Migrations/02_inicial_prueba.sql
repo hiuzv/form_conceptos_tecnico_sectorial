@@ -1,6 +1,6 @@
 INSERT INTO personas (nombre, rol) VALUES
   ('Jorge Octavio Guzmán Gutiérrez', 'Gobernador'),
-  ('Diana Melissa Muriel Muñoz','Jefe OAP');
+  ('Diana Melissa Muriel Muñoz','Secretaría de Planeación');
 
 INSERT INTO periodo_lema (inicio_periodo, fin_periodo, lema) VALUES
   (2024, 2027, 'La fuerza del pueblo');
@@ -20,13 +20,13 @@ INSERT INTO tipo_viabilidad (nombre) VALUES
 
 INSERT INTO dependencia (nombre_dependencia) VALUES
   ('Oficina Asesora de Gestión del Riesgo'),
-  ('Oficina Asesora de Planeación'),
+  ('Secretaría de Planeación'),
   ('Oficina Asesora Jurídica'),
   ('Oficina de Gestión Social y Asuntos Poblacionales'),
   ('Secretaría de Agricultura y Desarrollo Rural'),
   ('Secretaría de Desarrollo Económico y Competitividad'),
   ('Secretaría de Educación y Cultura'),
-  ('Secretaría de Gobierno y Participación'),
+  ('Secretaría de Gobierno'),
   ('Secretaría de Hacienda'),
   ('Secretaría de Infraestructura'),
   ('Secretaría de la Mujer'),
@@ -138,6 +138,7 @@ INSERT INTO programa (codigo_programa, nombre_programa, id_sector) VALUES
   (4599, 'Fortalecimiento a la gestión y dirección de la administración pública territorial', 30),
   (1903, 'Inspección, vigilancia y control', 31),
   (1905, 'Salud Pública', 31),
+  (1905, 'Salud pública', 31),
   (1906, 'Aseguramiento y prestación integral de servicios de salud', 31),
   (2201, 'Calidad, cobertura y fortalecimiento de la educación inicial, preescolar, básica y media', 32),
   (2202, 'Calidad y fomento de la educación superior', 32),

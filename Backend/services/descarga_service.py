@@ -228,7 +228,7 @@ def word_carta(db: Session, form_id: int) -> Tuple[BytesIO, str]:
     base = _fetch_base_context(db, form_id)
     ctx = _context_word_common(base)
     ctx["gobernador"] = _persona_por_rol(db, "Gobernador")
-    ctx["jefe_oap"]   = _persona_por_rol(db, "Secretaria de Planeación")
+    ctx["jefe_oap"]   = _persona_por_rol(db, "Secretaría de Planeación")
     pl = db.query(PeriodoLema).order_by(PeriodoLema.id.desc()).first()
     if pl:
         ctx["Periodo"] = f"{pl.inicio_periodo}-{pl.fin_periodo}"
@@ -327,7 +327,7 @@ def _context_word_common(base: Dict[str, object]) -> Dict[str, object]:
     return ctx
 
 def _fmt(v: float) -> str:
-    return "" if abs(v) < 0.005 else f"{v:.2f}"
+    return "" if abs(v) < 0.5 else str(int(round(v)))
 
 def _merge_ctx_carta(db, form_id: int) -> dict:
     rows = db.execute(
@@ -535,10 +535,20 @@ def excel_cadena_valor(db: Session, form_id: int) -> Tuple[BytesIO, str]:
     base = _fetch_base_context(db, form_id)
     now = _now_bogota()
 
+    metas_base = base.get("metas", []) or []
+    metas = [
+        {
+            "numero_meta": m.get("numero"),
+            "nombre_meta": m.get("nombre"),
+        }
+        for m in metas_base
+    ]
+
     data = {
         "nombre_proyecto": base["nombre_proyecto"],
         "cod_id_mga": base["cod_id_mga"],
         "fecha_actual": f"{now.day} de {_spanish_month(now.month)} del {now.year}",
+        "metas": metas,
     }
 
     out_path = fill_cadena_valor(base_dir=base_dir, data=data)
@@ -594,6 +604,17 @@ def excel_viabilidad_dependencias(db: Session, form_id: int) -> Tuple[BytesIO, s
         .all()
     }
 
+    # Detectar si existe meta 411
+    tiene_meta_411 = False
+    for m in metas:   # metas viene del formulario y ya existe aquí
+        try:
+            if int(m.get("numero_meta")) == 411:
+                tiene_meta_411 = True
+                break
+        except:
+            pass
+    proyecto_fortalecimiento = "SI" if tiene_meta_411 else "NO"
+
     # 5) Armar data para el llenado del Excel
     data = {
         "dependencia": base["nombre_dependencia"],
@@ -606,6 +627,7 @@ def excel_viabilidad_dependencias(db: Session, form_id: int) -> Tuple[BytesIO, s
         "nombre_secretario": base["nombre_secretario"],
         "fecha_actual": f"{now.day} de {_spanish_month(now.month)} del {now.year}",
         "metas": metas,
+        "proyecto_fortalecimiento": proyecto_fortalecimiento,
     }
 
     out_path = fill_viabilidad_dependencias(base_dir=base_dir, data=data)
