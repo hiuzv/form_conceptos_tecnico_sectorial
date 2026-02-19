@@ -1,0 +1,336 @@
+<style>
+    @media all {
+        body {
+            font-size:12px;
+            -webkit-print-color-adjust: exact;
+        }
+        .tbl td, .tbl th {
+            border-left: #222222 1px solid;
+            border-top: #222222 1px solid;
+        }
+        .tbl th {
+            text-align: left;
+            background-color: #cccccc;
+        }
+        .tbl th.c, .tbl td.c {
+            text-align: center !important;
+        }
+        .tbl td.d {
+            text-align: right !important;
+        }
+        .tbl th.r div, .tbl td.r div{
+            -moz-transform: rotate(-90.0deg);  
+            -o-transform: rotate(-90.0deg); 
+            -webkit-transform: rotate(-90.0deg);
+            border: red 1px solid;
+        }
+        .tbl {
+            border-bottom:#222222 1px solid; 
+            border-right:#222222 1px solid; 
+            width:730px;
+            font-size:12px;
+            margin-bottom: 8px;
+            -webkit-print-color-adjust: exact;
+        }
+        .titulo{
+            font-size:18px;
+            font-weight: bold;
+        }
+        .subtitulo{
+            font-size:12px;
+            font-weight: bold;
+        }
+        .pie_pagina{
+            position:absolute;
+            bottom: 0px;
+        }
+        .pagina{
+            border: #ff0000 1px solid;
+            width: 730px;
+            height: 900px;
+            margin:30px;
+            padding: 5px;
+            position:relative;
+        }
+
+    }
+    @media print  {
+        .pagina{
+            border: #ff0000 1px solid;
+            width: 730px;
+            height: 940px; /* 930 */
+            margin: 0 0 2px 0;
+            padding: 0px;
+            position:relative;
+        }
+    }
+</style>
+
+<table border="0" cellpadding="0" cellspacing="0" style="width:730px">
+<tbody>
+    <tr>
+        <td class="titulo" style="text-align:center">PROYECTO CON OBSERVACIONES</td>
+    </tr>
+</tbody>
+</table>
+
+<table  class="tbl" border="0" cellpadding="2" cellspacing="0">
+<tbody>
+    <tr>
+        <th style="width:90px">PROYECTO</th>
+        <td colspan="6" rowspan="1" style="width:630px">$proyecto</td>
+    </tr>
+    <tr>
+        <th style="width:90px">PROGRAMA</th>
+        <td colspan="6" rowspan="1" style="width:630px">$programa</td>
+    </tr>
+    <tr>
+        <th style="width:90px">MUNICIPIO</th>
+        <td style="width:150px">$municipio</td>
+        <th style="width:90px">RADICADO</th>
+        <td style="width:150px">$cod_rad</td>
+        <th colspan="2" rowspan="1" style="width:90px">FECHA</th>
+        <td style="width:150px">$fecha_rad</td>
+    </tr>
+    <tr>
+        <th style="width:90px">SECTOR</th>
+        <td style="width:150px">$sector</td>
+        <th colspan="3" rowspan="1" style="width:285px">FECHA DE INGRESO A ESTA ETAPA</th>
+        <td colspan="2" rowspan="1" style="width:195px">$fecha_etapa</td>
+    </tr>
+</tbody>
+</table>
+
+<table  class="tbl" border="0" cellpadding="2" cellspacing="0">
+<tbody>
+    <tr>
+        <th colspan="1" rowspan="2" style="width:144px">SOPORTES</th>
+        <th class="c" style="width:144px">FOLIOS</th>
+        <th class="c" style="width:144px">PLANOS</th>
+        <th class="c" style="width:144px">CDS</th>
+        <th class="c" style="width:144px">OTROS</th>
+    </tr>
+    <tr>
+        <td style="width:144px">$folios</td>
+        <td style="width:144px">$planos</td>
+        <td style="width:144px">$cds</td>
+        <td style="width:144px">$otros_adj</td>
+    </tr>
+</tbody>
+</table>
+
+<table  class="tbl" border="0" cellpadding="2" cellspacing="0">
+<tbody>
+    <tr>
+        <th colspan="1" rowspan="2" style="width:120px">BENEFICIARIOS</th>
+        <th class="c" style="width:110px">MUNICIPIOS</th>
+        <th class="c" style="width:110px">PERSONAS</th>
+        <th class="c" style="width:110px">FAMILIAS</th>
+        <th class="c" style="width:140px">POBLACION AFRO</th>
+        <th class="c" style="width:140px">POBLACION INDIGENA</th>
+    </tr>
+    <tr>
+        <td style="width:110px">$pb_municipios</td>
+        <td style="width:110px">$pb_personas</td>
+        <td style="width:110px">$pb_viviendas</td>
+        <td style="width:140px">$pb_afro</td>
+        <td style="width:140px">$pb_indigena</td>
+    </tr>
+</tbody>
+</table>
+
+<table  class="tbl" border="0" cellpadding="2" cellspacing="0">
+<tbody>
+    <tr>
+        <th colspan="1" rowspan="2" style="width:160px">ENTIDAD QUE PRESENTA</th>
+        <td style="width:280px">$dependencia_p</td>
+        <th style="width:130px">REGISTRO BPIN</th>
+        <td style="width:150px">$ssepi</td>
+    </tr>
+</tbody>
+</table>
+
+<table  class="tbl" border="0" cellpadding="2" cellspacing="0">
+<tbody>
+    <tr>
+        <td class="c subtitulo" colspan="6" rowspan="1" style="width:40px;">ESTRUCTURA FINANCIERA SOLICITADA EN PESOS</td>
+    </tr>
+    <tr>
+        <th class="c" colspan="6" rowspan="1"  style="width:140px">1. OTRAS FUENTES</th>
+    </tr>
+    <tr>
+        <th style="width:150px">ENTIDAD\VIGENCIA</th>
+        <th class="c" style="width:105px">2024</th>
+        <th class="c" style="width:105px">2025</th>
+        <th class="c" style="width:105px">2026</th>
+        <th class="c" style="width:105px">2027</th>
+        <th class="c" style="width:150px">TOTAL</th>
+    </tr>
+    <tr>
+        <th style="width:150px">NACION</th>
+        <td class="d" style="width:105px">$f_vig_nac1</td>
+        <td class="d" style="width:105px">$f_vig_nac2</td>
+        <td class="d" style="width:105px">$f_vig_nac3</td>
+        <td class="d" style="width:105px">$f_vig_nac4</td>
+        <td class="d" style="width:150px">$f_vig_nac5</td>
+    </tr>
+    <tr>
+        <th style="width:150px">DEPARTAMENTO</th>
+        <td class="d" style="width:105px">$f_vig_dep1</td>
+        <td class="d" style="width:105px">$f_vig_dep2</td>
+        <td class="d" style="width:105px">$f_vig_dep3</td>
+        <td class="d" style="width:105px">$f_vig_dep4</td>
+        <td class="d" style="width:150px">$f_vig_dep5</td>
+    </tr>
+    <tr>
+        <th style="width:150px">MUNICIPIO</th>
+        <td class="d" style="width:105px">$f_vig_mun1</td>
+        <td class="d" style="width:105px">$f_vig_mun2</td>
+        <td class="d" style="width:105px">$f_vig_mun3</td>
+        <td class="d" style="width:105px">$f_vig_mun4</td>
+        <td class="d" style="width:150px">$f_vig_mun5</td>
+    </tr>
+    <tr>
+        <th style="width:150px">OTROS</th>
+        <td class="d" style="width:105px">$f_vig_otr1</td>
+        <td class="d" style="width:105px">$f_vig_otr2</td>
+        <td class="d" style="width:105px">$f_vig_otr3</td>
+        <td class="d" style="width:105px">$f_vig_otr4</td>
+        <td class="d" style="width:150px">$f_vig_otr5</td>
+    </tr>
+    <tr>
+        <th style="width:150px">SUB-TOTAL</th>
+        <td class="d" style="width:105px">$f_vig_tot1</td>
+        <td class="d" style="width:105px">$f_vig_tot2</td>
+        <td class="d" style="width:105px">$f_vig_tot3</td>
+        <td class="d" style="width:105px">$f_vig_tot4</td>
+        <td class="d" style="width:150px">$f_vig_tot5</td>
+    </tr>
+    
+    <tr>
+        <th class="c" style="width:150px">TOTAL</th>
+        <td class="d" style="width:105px">&nbsp;</td>
+        <td class="d" style="width:105px">&nbsp;</td>
+        <td class="d" style="width:105px">&nbsp;</td>
+        <td class="d" style="width:105px">&nbsp;</td>
+        <td class="d" style="width:150px">&nbsp;</td>
+    </tr>
+</tbody>
+</table>
+<!-- hasta aqui formato fijo -->
+
+
+<style>
+    @media all {
+        body {
+            font-size:12px;
+            -webkit-print-color-adjust: exact;
+        }
+        .tbl td, .tbl th {
+            border-left: #222222 1px solid;
+            border-top: #222222 1px solid;
+        }
+        .tbl th {
+            text-align: left;
+            background-color: #cccccc;
+        }
+        .tbl th.c, .tbl td.c {
+            text-align: center !important;
+        }
+        .tbl td.d {
+            text-align: right !important;
+        }
+        .tbl th.r div, .tbl td.r div{
+            -moz-transform: rotate(-90.0deg);  
+            -o-transform: rotate(-90.0deg); 
+            -webkit-transform: rotate(-90.0deg);
+            border: red 1px solid;
+        }
+        .tbl {
+            border-bottom:#222222 1px solid; 
+            border-right:#222222 1px solid; 
+            width:730px;
+            font-size:12px;
+            margin-bottom: 8px;
+            -webkit-print-color-adjust: exact;
+        }
+        .titulo{
+            font-size:18px;
+            font-weight: bold;
+        }
+        .subtitulo{
+            font-size:12px;
+            font-weight: bold;
+        }
+        .pie_pagina{
+            position:absolute;
+            bottom: 0px;
+        }
+        .pagina{
+            border: #ff0000 1px solid;
+            width: 730px;
+            height: 900px;
+            margin:30px;
+            padding: 5px;
+            position:relative;
+        }
+
+    }
+    @media print  {
+        .pagina{
+            border: #ff0000 1px solid;
+            width: 730px;
+            height: 940px; /* 930 */
+            margin: 0 0 2px 0;
+            padding: 0px;
+            position:relative;
+        }
+    }
+</style>
+<table  class="tbl" border="0" cellpadding="2" cellspacing="0">
+<tbody>
+    <tr>
+        <th class="subtitulo c" style="width:40px;">EVALUANDO EL PROYECTO, SE HACEN LAS SIGUIENTES OBSERVACIONES</th>
+    </tr>
+    <tr>
+        <td style="width:720px">
+            <ul>
+                <li>&nbsp;</li>                
+            </ul>
+        </td>
+    </tr>
+</tbody>
+</table>
+<table class="tbl" border="0" cellpadding="2" cellspacing="0" style="text-align: center;">
+<thead style="text-align: center;">
+  <tr>
+    <th rowspan="2" style="text-align: center;">FIRMA</td>
+    <th style="text-align: center;">ANALISTA EVALUADOR</th>
+    <th style="text-align: center;">REVISÓ Y APROBÓ</th>    
+  </tr>
+  <tr>
+    <td></td>
+	<td style="height:70px"></td>
+  </tr>
+</thead>
+<tbody>
+  <tr>
+    <th style="text-align: center;">NOMBRE</th>
+    <td>$nombre</td>
+    <td>LUIS MIGUEL RESTREPO O.</td>
+  </tr>
+  <tr>
+    <th style="text-align: center;">CARGO</th>
+    <td></td>
+    <td>Profesional Universitario</td>
+  </tr>
+  <tr>
+    <th style="text-align: center;">DEPENDENCIA</th>
+    <td colspan="2">$dependencia</td>
+  </tr>
+  <tr>
+    <th style="text-align: center;">FECHA DEL CONCEPTO</th>
+    <td colspan="2">$fecha_etapa</td>
+  </tr>
+</tbody>
+</table>

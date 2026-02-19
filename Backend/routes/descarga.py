@@ -2,6 +2,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
+from pydantic import BaseModel
 from Backend.utils.database import SessionLocal
 from Backend.services import descarga_service
 
@@ -13,6 +14,15 @@ def get_db():
         yield db
     finally:
         db.close()
+
+
+class EvaluadorTemplateIn(BaseModel):
+    contenido_html: str
+    nombre_evaluador: str
+    cargo_evaluador: str | None = None
+    concepto_tecnico_favorable_dep: str | None = None
+    concepto_sectorial_favorable_dep: str | None = None
+    proyecto_viable_dep: str | None = None
 
 @router.get("/excel/concepto-tecnico-sectorial/{form_id}")
 def descargar_excel_concepto_tecnico_sectorial(form_id: int, db: Session = Depends(get_db)):
@@ -120,4 +130,52 @@ def descargar_word_no_doble_cofin(form_id: int, db: Session = Depends(get_db)):
         bio,
         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+    )
+
+
+@router.post("/evaluador/template/{doc_key}/{form_id}")
+def render_template_evaluador(doc_key: str, form_id: int, body: EvaluadorTemplateIn, db: Session = Depends(get_db)):
+    try:
+        html, filename = descarga_service.render_evaluador_template_html(
+            db=db,
+            form_id=form_id,
+            template_key=doc_key,
+            contenido_html=body.contenido_html,
+            nombre_evaluador=body.nombre_evaluador,
+            cargo_evaluador=body.cargo_evaluador,
+            concepto_tecnico_favorable_dep=body.concepto_tecnico_favorable_dep,
+            concepto_sectorial_favorable_dep=body.concepto_sectorial_favorable_dep,
+            proyecto_viable_dep=body.proyecto_viable_dep,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error generando plantilla: {e}")
+
+    return {"html": html, "filename": filename}
+
+
+@router.post("/evaluador/pdf/{doc_key}/{form_id}")
+async def render_pdf_evaluador(doc_key: str, form_id: int, body: EvaluadorTemplateIn, db: Session = Depends(get_db)):
+    try:
+        bio, filename = await descarga_service.render_evaluador_template_pdf_async(
+            db=db,
+            form_id=form_id,
+            template_key=doc_key,
+            contenido_html=body.contenido_html,
+            nombre_evaluador=body.nombre_evaluador,
+            cargo_evaluador=body.cargo_evaluador,
+            concepto_tecnico_favorable_dep=body.concepto_tecnico_favorable_dep,
+            concepto_sectorial_favorable_dep=body.concepto_sectorial_favorable_dep,
+            proyecto_viable_dep=body.proyecto_viable_dep,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error generando PDF: {repr(e)}")
+
+    return StreamingResponse(
+        bio,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )

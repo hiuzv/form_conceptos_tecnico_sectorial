@@ -1,6 +1,7 @@
 from typing import List, Optional, Annotated
 from decimal import Decimal
 from pydantic import BaseModel, Field
+from datetime import datetime, date
 
 ValorMoneda = Annotated[Decimal, Field(max_digits=18, decimal_places=2)]
 
@@ -147,6 +148,13 @@ class FormularioRead(BaseModel):
     duracion_proyecto: Optional[int] = None
     cantidad_beneficiarios: Optional[int] = None
     cargo_responsable: Optional[str] = None
+    numero_radicacion: Optional[str] = None
+    fecha_radicacion: Optional[date] = None
+    bpin: Optional[str] = None
+    soportes_folios: int = 0
+    soportes_planos: int = 0
+    soportes_cds: int = 0
+    soportes_otros: int = 0
 
 class ProyectoListRead(BaseModel):
     nombre: str
@@ -204,3 +212,39 @@ class VarRespuestaIn(BaseModel):
 
 class VarsRespuestaUpsertIn(BaseModel):
     respuestas: List[VarRespuestaIn]
+
+
+class FormularioRadicacionUpsert(BaseModel):
+    numero_radicacion: Optional[str] = None
+    fecha_radicacion: Optional[date] = None
+    bpin: Optional[str] = None
+    soportes_folios: int = 0
+    soportes_planos: int = 0
+    soportes_cds: int = 0
+    soportes_otros: int = 0
+
+
+class ObservacionEvaluacionCreate(BaseModel):
+    tipo_documento: str  # OBSERVACIONES | VIABILIDAD
+    contenido_html: str
+    nombre_evaluador: str
+    cargo_evaluador: Optional[str] = None
+    concepto_tecnico_favorable_dep: Optional[str] = None
+    concepto_sectorial_favorable_dep: Optional[str] = None
+    proyecto_viable_dep: Optional[str] = None
+
+
+class ObservacionEvaluacionRead(BaseModel):
+    id: int
+    id_formulario: int
+    tipo_documento: str
+    contenido_html: str
+    nombre_evaluador: str
+    cargo_evaluador: Optional[str] = None
+    concepto_tecnico_favorable_dep: Optional[str] = None
+    concepto_sectorial_favorable_dep: Optional[str] = None
+    proyecto_viable_dep: Optional[str] = None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True

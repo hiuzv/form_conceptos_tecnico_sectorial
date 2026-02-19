@@ -1,8 +1,12 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 from collections import defaultdict
 from decimal import Decimal
 from io import BytesIO
 from pathlib import Path
+import re
+import base64
+import asyncio
+import sys
 from typing import Dict, Optional, Tuple
 from sqlalchemy import text
 from sqlalchemy.orm import Session
@@ -47,9 +51,9 @@ _DAY_WORDS = {
     1: "uno", 2: "dos", 3: "tres", 4: "cuatro", 5: "cinco",
     6: "seis", 7: "siete", 8: "ocho", 9: "nueve", 10: "diez",
     11: "once", 12: "doce", 13: "trece", 14: "catorce", 15: "quince",
-    16: "dieciséis", 17: "diecisiete", 18: "dieciocho", 19: "diecinueve",
-    20: "veinte", 21: "veintiuno", 22: "veintidós", 23: "veintitrés",
-    24: "veinticuatro", 25: "veinticinco", 26: "veintiséis", 27: "veintisiete",
+    16: "diecisÃ©is", 17: "diecisiete", 18: "dieciocho", 19: "diecinueve",
+    20: "veinte", 21: "veintiuno", 22: "veintidÃ³s", 23: "veintitrÃ©s",
+    24: "veinticuatro", 25: "veinticinco", 26: "veintisÃ©is", 27: "veintisiete",
     28: "veintiocho", 29: "veintinueve", 30: "treinta", 31: "treinta y uno"
 }
 
@@ -63,7 +67,7 @@ def _now_bogota() -> datetime:
         return datetime.now()
     
 # =========================
-# Carga base (común) desde BD
+# Carga base (comÃºn) desde BD
 # =========================
 def _fetch_base_context(db: Session, form_id: int) -> dict:
     row = (
@@ -89,6 +93,13 @@ def _fetch_base_context(db: Session, form_id: int) -> dict:
         "form_id": form.id,
         "nombre_proyecto": form.nombre_proyecto,
         "cod_id_mga": form.cod_id_mga,
+        "numero_radicacion": getattr(form, "numero_radicacion", None),
+        "fecha_radicacion": getattr(form, "fecha_radicacion", None),
+        "bpin": getattr(form, "bpin", None),
+        "soportes_folios": getattr(form, "soportes_folios", 0),
+        "soportes_planos": getattr(form, "soportes_planos", 0),
+        "soportes_cds": getattr(form, "soportes_cds", 0),
+        "soportes_otros": getattr(form, "soportes_otros", 0),
         "id_dependencia": form.id_dependencia,
         "nombre_dependencia": dep_nom or "",
         "codigo_sector": sec_cod or "",
@@ -109,7 +120,17 @@ def _fetch_base_context(db: Session, form_id: int) -> dict:
         .order_by(Meta.numero_meta)
         .all()
     )
-    base["metas"] = [{"numero": m.numero_meta, "nombre": m.nombre_meta} for m in metas]
+    base["metas"] = [
+        {
+            "numero": m.numero_meta,
+            "nombre": m.nombre_meta,
+            "codigo_producto": m.codigo_producto,
+            "nombre_producto": m.nombre_producto,
+            "codigo_indicador_producto": m.codigo_indicador_producto,
+            "nombre_indicador_producto": m.nombre_indicador_producto,
+        }
+        for m in metas
+    ]
     ef_rows = (
         db.query(EstructuraFinanciera)
         .filter(EstructuraFinanciera.id_formulario == form_id)
@@ -130,7 +151,7 @@ def _fetch_base_context(db: Session, form_id: int) -> dict:
     base["variables_sectorial"] = [vid in sel_sec_ids for vid in ids_sec][:9] + [""] * max(0, 9 - len(ids_sec))
     base["variables_sectorial_respuestas"] = [res_sec_map.get(vid, "") for vid in ids_sec][:9] + [""] * max(0, 9 - len(ids_sec))
 
-    # ========== Variables TÉCNICO ==========
+    # ========== Variables TÃ‰CNICO ==========
     tec_rows = (
         db.query(VariablesTecnicoRel.id_variable_tecnico, VariablesTecnicoRel.respuesta)
         .filter(VariablesTecnicoRel.id_formulario == form_id)
@@ -169,13 +190,13 @@ def _fetch_base_context(db: Session, form_id: int) -> dict:
 
 
 # =========================
-# EXCELS (uno por función)
+# EXCELS (uno por funciÃ³n)
 # =========================
 def excel_concepto_tecnico_sectorial(db: Session, form_id: int) -> Tuple[BytesIO, str]:
     base_dir = Path(__file__).resolve().parents[2]
     data = _context_excel_concepto(_fetch_base_context(db, form_id))
     now = _now_bogota()
-    data["fecha_firma_texto"] = (f"Para constancia se firma el día {now.day} del mes de {_spanish_month(now.month)} del año {now.year}.")
+    data["fecha_firma_texto"] = (f"Para constancia se firma el dÃ­a {now.day} del mes de {_spanish_month(now.month)} del aÃ±o {now.year}.")
     dep_nom = (data.get("nombre_dependencia") or "").strip()
     data["firma_secretaria_texto"] = f"Firma del Secretario(a)/Jefe de oficina de {dep_nom}."
     out_path = fill_from_template(base_dir=base_dir, data=data)
@@ -207,7 +228,7 @@ def _context_excel_concepto(base: Dict[str, object]) -> Dict[str, object]:
         "nombre_politica": [p["nombre"] for p in base.get("politicas", [])][:2],
         "valor_destinado": [p["valor"] for p in base.get("politicas", [])][:2],
         "nombre_categoria": [c["nombre"] for c in base.get("categorias", [])][:2],
-        "nombre_focalización": [s["nombre"] for s in base.get("subcategorias", [])][:2],
+        "nombre_focalizaciÃ³n": [s["nombre"] for s in base.get("subcategorias", [])][:2],
 
         "estructura_financiera": base.get("estructura_financiera", []),
     }
@@ -216,7 +237,7 @@ def _context_excel_concepto(base: Dict[str, object]) -> Dict[str, object]:
 
 
 # =========================
-# WORDS (uno por función)
+# WORDS (uno por funciÃ³n)
 # =========================
 TEMPLATE_MAP = {
     "carta": "2.carta_de_presentacion.docx",
@@ -228,7 +249,7 @@ def word_carta(db: Session, form_id: int) -> Tuple[BytesIO, str]:
     base = _fetch_base_context(db, form_id)
     ctx = _context_word_common(base)
     ctx["gobernador"] = _persona_por_rol(db, "Gobernador")
-    ctx["jefe_oap"]   = _persona_por_rol(db, "Secretaría de Planeación")
+    ctx["jefe_oap"]   = _persona_por_rol(db, "SecretarÃ­a de PlaneaciÃ³n")
     pl = db.query(PeriodoLema).order_by(PeriodoLema.id.desc()).first()
     if pl:
         ctx["Periodo"] = f"{pl.inicio_periodo}-{pl.fin_periodo}"
@@ -291,7 +312,7 @@ def _context_word_common(base: Dict[str, object]) -> Dict[str, object]:
         "mes": _spanish_month(now.month),
         "mes_texto": _spanish_month(now.month),
         "anio": now.year,
-        "año":  now.year,
+        "aÃ±o":  now.year,
     }
 
     ef = base.get("estructura_financiera", [])
@@ -339,7 +360,7 @@ def _merge_ctx_carta(db, form_id: int) -> dict:
         {"fid": form_id}
     ).fetchall()
 
-    # --- 2) Determinar los 4 años ---
+    # --- 2) Determinar los 4 aÃ±os ---
     ys = sorted({int(r[0]) for r in rows})
     if len(ys) != 4:
         if ys:
@@ -349,7 +370,7 @@ def _merge_ctx_carta(db, form_id: int) -> dict:
             ys = [2025, 2026, 2027, 2028]
     y1, y2, y3, y4 = ys
 
-    # --- 3) Inicializar contexto base con los años ---
+    # --- 3) Inicializar contexto base con los aÃ±os ---
     ctx = {
         "anio_1": str(y1),
         "anio_2": str(y2),
@@ -357,7 +378,7 @@ def _merge_ctx_carta(db, form_id: int) -> dict:
         "anio_4": str(y4),
     }
 
-    # --- 4) Normalizar datos por año/entidad ---
+    # --- 4) Normalizar datos por aÃ±o/entidad ---
     by_year = {y: {} for y in ys}
     for y, ent, val in rows:
         y = int(y)
@@ -375,7 +396,7 @@ def _merge_ctx_carta(db, form_id: int) -> dict:
     ]
     dep_por_anio = {y: _val(y, "PROPIOS") + sum(_val(y, k) for k in SGP_KEYS) for y in ys}
 
-    # --- 6) Totales por año (sin doble conteo) ---
+    # --- 6) Totales por aÃ±o (sin doble conteo) ---
     tot_por_anio = {
         y: dep_por_anio[y] + _val(y, "MUNICIPIO") + _val(y, "NACION") + _val(y, "OTROS")
         for y in ys
@@ -425,7 +446,7 @@ def _merge_ctx_carta(db, form_id: int) -> dict:
     if "valor_sgp_inver_2" in ctx and "valor_sgp_inve_2" not in ctx:
         ctx["valor_sgp_inve_2"] = ctx["valor_sgp_inver_2"]
 
-    # --- 10) Municipio / Nación / Otros ---
+    # --- 10) Municipio / NaciÃ³n / Otros ---
     for key, alias in [("MUNICIPIO", "municipio"), ("NACION", "nacion"), ("OTROS", "otros")]:
         ctx[f"valor_{alias}_1"] = _fmt(_val(y1, key))
         ctx[f"valor_{alias}_2"] = _fmt(_val(y2, key))
@@ -441,7 +462,7 @@ def _merge_ctx_carta(db, form_id: int) -> dict:
     total_general = sum(tot_por_anio[y] for y in ys)
     ctx["valor_sum_total"] = _fmt(total_general)
 
-    # --- 12) Costo del proyecto (texto y número) ---
+    # --- 12) Costo del proyecto (texto y nÃºmero) ---
     ctx["costo_numero"] = _fmt(total_general).replace(",", "")
     ctx["costo_texto"] = numero_a_texto(total_general)
 
@@ -466,7 +487,7 @@ def _merge_ctx_carta(db, form_id: int) -> dict:
         "indicador_producto": r[5],
     } for r in rows]
 
-    # 🔹 DEDUPLICAR: nos quedamos solo con combinaciones únicas
+    # ðŸ”¹ DEDUPLICAR: nos quedamos solo con combinaciones Ãºnicas
     # (meta, producto, indicador) para evitar duplicados en la carta
     vistos = set()
     metas_unicas = []
@@ -479,7 +500,7 @@ def _merge_ctx_carta(db, form_id: int) -> dict:
 
     metas_ctx = metas_unicas
 
-    # Cargamos también variables enumeradas por compatibilidad con la plantilla
+    # Cargamos tambiÃ©n variables enumeradas por compatibilidad con la plantilla
     for i, m in enumerate(metas_ctx, start=1):
         ctx[f"numero_meta_{i}"] = m["cod_meta"]
         ctx[f"nombre_meta_{i}"] = m["meta"]
@@ -493,7 +514,7 @@ def _merge_ctx_carta(db, form_id: int) -> dict:
     # Contexto de metas que usa word_fill._expand_table1_and_table3
     ctx["__metas_ctx__"] = metas_ctx
 
-    # Variables "planas" (sin índice) para el primer producto/meta
+    # Variables "planas" (sin Ã­ndice) para el primer producto/meta
     if metas_ctx:
         first = metas_ctx[0]
         ctx["cod_meta"] = first["cod_meta"]
@@ -581,7 +602,7 @@ def excel_viabilidad_dependencias(db: Session, form_id: int) -> Tuple[BytesIO, s
 
     now = _now_bogota()
 
-    # 2) Estructura financiera → años y lookup
+    # 2) Estructura financiera â†’ aÃ±os y lookup
     ef = base.get("estructura_financiera", [])
     years = sorted({r["anio"] for r in ef if r.get("anio")})[:4]
     while len(years) < 4:
@@ -606,7 +627,7 @@ def excel_viabilidad_dependencias(db: Session, form_id: int) -> Tuple[BytesIO, s
 
     # Detectar si existe meta 411
     tiene_meta_411 = False
-    for m in metas:   # metas viene del formulario y ya existe aquí
+    for m in metas:   # metas viene del formulario y ya existe aquÃ­
         try:
             if int(m.get("numero_meta")) == 411:
                 tiene_meta_411 = True
@@ -634,3 +655,486 @@ def excel_viabilidad_dependencias(db: Session, form_id: int) -> Tuple[BytesIO, s
     bio = BytesIO(out_path.read_bytes())
     bio.seek(0)
     return bio, out_path.name
+
+
+_EVAL_TEMPLATE_MAP = {
+    "observaciones": "observaciones.html",
+    "viabilidad": "viabilidad.html",
+}
+
+
+def _fmt_money_eval(v: float | int | None) -> str:
+    try:
+        n = float(v or 0)
+    except Exception:
+        n = 0.0
+    if abs(n) < 0.005:
+        return ""
+    return f"{n:,.0f}".replace(",", ".")
+
+
+def _fmt_fecha_doc_es(d) -> str:
+    if not d:
+        return ""
+    try:
+        day = int(getattr(d, "day"))
+        month = int(getattr(d, "month"))
+        year = int(getattr(d, "year"))
+    except Exception:
+        return str(d)
+    mes = _spanish_month(month)
+    if mes:
+        mes = mes.capitalize()
+    return f"{day:02d}-{mes}-{year}"
+
+
+def _years_and_lookup(estructura_financiera: list[dict]) -> tuple[list[int], dict[tuple[int, str], float]]:
+    years = sorted({int(r.get("anio")) for r in estructura_financiera if r.get("anio") is not None})
+    if not years:
+        now = _now_bogota()
+        years = [now.year, now.year + 1, now.year + 2, now.year + 3]
+    while len(years) < 4:
+        years.append(years[-1] + 1)
+    years = years[:4]
+
+    lookup: dict[tuple[int, str], float] = {}
+    for r in estructura_financiera:
+        anio = r.get("anio")
+        ent = (r.get("entidad") or "").strip().upper()
+        if anio is None or not ent:
+            continue
+        try:
+            lookup[(int(anio), ent)] = float(r.get("valor") or 0)
+        except Exception:
+            lookup[(int(anio), ent)] = 0.0
+    return years, lookup
+
+
+def _build_eval_tokens(base: dict, nombre_evaluador: str, cargo_evaluador: str = "") -> dict[str, str]:
+    ef = base.get("estructura_financiera", []) or []
+    years, lookup = _years_and_lookup(ef)
+
+    def get_val(y: int, ent: str) -> float:
+        return float(lookup.get((y, ent), 0.0))
+
+    nacion = [get_val(y, "NACION") for y in years]
+    depto = [get_val(y, "DEPARTAMENTO") for y in years]
+    muni = [get_val(y, "MUNICIPIO") for y in years]
+    otros = [get_val(y, "OTROS") for y in years]
+    subtotal = [nacion[i] + depto[i] + muni[i] + otros[i] for i in range(4)]
+
+    now = _now_bogota()
+    fecha_default = _fmt_fecha_doc_es(now)
+    fecha_radic = base.get("fecha_radicacion")
+    if fecha_radic:
+        fecha_rad_txt = _fmt_fecha_doc_es(fecha_radic)
+    else:
+        fecha_rad_txt = fecha_default
+    programa_txt = " - ".join(
+        [x for x in [str(base.get("codigo_programa") or "").strip(), str(base.get("nombre_programa") or "").strip()] if x]
+    )
+    sector_txt = " - ".join(
+        [x for x in [str(base.get("codigo_sector") or "").strip(), str(base.get("nombre_sector") or "").strip()] if x]
+    )
+    dependencia = str(base.get("nombre_dependencia") or "").strip()
+
+    tokens: dict[str, str] = {
+        "proyecto": str(base.get("nombre_proyecto") or ""),
+        "programa": programa_txt,
+        "municipio": "Cauca",
+        "cod_rad": str(base.get("numero_radicacion") or ""),
+        "fecha_rad": fecha_rad_txt,
+        "sector": sector_txt,
+        "fecha_etapa": fecha_rad_txt,
+        "folios": str(base.get("soportes_folios") or 0),
+        "planos": str(base.get("soportes_planos") or 0),
+        "cds": str(base.get("soportes_cds") or 0),
+        "otros_adj": str(base.get("soportes_otros") or 0),
+        "pb_municipios": "0",
+        "pb_personas": str(base.get("cantidad_beneficiarios") or ""),
+        "pb_viviendas": "0",
+        "pb_afro": "0",
+        "pb_indigena": "0",
+        "dependencia_p": dependencia,
+        "ssepi": str(base.get("bpin") or "Por definir"),
+        "nombre": (nombre_evaluador or "").strip(),
+        "cargo_evaluador": (cargo_evaluador or "").strip(),
+        "dependencia": "Secretaría de Planeación",
+    }
+
+    for i in range(4):
+        idx = i + 1
+        tokens[f"f_vig_nac{idx}"] = _fmt_money_eval(nacion[i])
+        tokens[f"f_vig_dep{idx}"] = _fmt_money_eval(depto[i])
+        tokens[f"f_vig_mun{idx}"] = _fmt_money_eval(muni[i])
+        tokens[f"f_vig_otr{idx}"] = _fmt_money_eval(otros[i])
+        tokens[f"f_vig_tot{idx}"] = _fmt_money_eval(subtotal[i])
+        tokens[f"f_tot{idx}"] = _fmt_money_eval(subtotal[i])
+
+    tokens["f_vig_nac5"] = _fmt_money_eval(sum(nacion))
+    tokens["f_vig_dep5"] = _fmt_money_eval(sum(depto))
+    tokens["f_vig_mun5"] = _fmt_money_eval(sum(muni))
+    tokens["f_vig_otr5"] = _fmt_money_eval(sum(otros))
+    tokens["f_vig_tot5"] = _fmt_money_eval(sum(subtotal))
+    tokens["f_tot5"] = _fmt_money_eval(sum(subtotal))
+    return tokens
+
+
+def _replace_tokens_in_html(html: str, tokens: dict[str, str]) -> str:
+    out = html
+    for k, v in tokens.items():
+        out = out.replace(f"${k}", v)
+    out = re.sub(r"\$[a-zA-Z0-9_]+", "", out)
+    return out
+
+
+def _inject_section_html(template_html: str, heading_text: str, content_html: str) -> str:
+    pattern = re.compile(
+        rf"(<th[^>]*>\s*{re.escape(heading_text)}\s*</th>\s*</tr>\s*<tr>\s*<td[^>]*>)(.*?)(</td>\s*</tr>)",
+        re.IGNORECASE | re.DOTALL,
+    )
+    return pattern.sub(rf"\1{content_html}\3", template_html, count=1)
+
+
+def _inject_viabilidad_checks(
+    template_html: str,
+    concepto_tecnico_dep: str | None,
+    concepto_sectorial_dep: str | None,
+    proyecto_viable_dep: str | None,
+) -> str:
+    def _mark(v: str | None, want: str) -> str:
+        return "X" if (v or "").strip().upper() == want else "&nbsp;"
+
+    rows = [
+        ("CONCEPTO TECNICO FAVORABLE", concepto_tecnico_dep),
+        ("CONCEPTO SECTORIAL FAVORABLE", concepto_sectorial_dep),
+        ("EL PROYECTO ES VIABLE", proyecto_viable_dep),
+    ]
+    out = template_html
+    for label, val in rows:
+        row_html = (
+            f"<tr>"
+            f"<td style=\"width: 35%;\">{label}</td>"
+            f"<td class=\"c\" style=\"width: 10%;\">&nbsp;</td>"
+            f"<td class=\"c\" style=\"width: 10%;\">&nbsp;</td>"
+            f"<td class=\"c\" style=\"width: 12%;\">{_mark(val, 'SI')}</td>"
+            f"<td class=\"c\" style=\"width: 13%;\">{_mark(val, 'NO')}</td>"
+            f"<td class=\"c\" style=\"width: 10%;\">&nbsp;</td>"
+            f"<td class=\"c\" style=\"width: 10%;\">&nbsp;</td>"
+            f"</tr>"
+        )
+        pat = re.compile(
+            rf"<tr>\s*<td[^>]*>\s*{re.escape(label)}\s*</td>.*?</tr>",
+            re.IGNORECASE | re.DOTALL,
+        )
+        out = pat.sub(row_html, out, count=1)
+    return out
+
+
+def _inject_viabilidad_productos(template_html: str, metas: list[dict]) -> str:
+    filas = metas[:8] if metas else []
+    if not filas:
+        return template_html
+
+    rows_html = ""
+    for m in filas:
+        rows_html += (
+            "<tr>"
+            f"<td class=\"d\" style=\"width:140px\">{m.get('codigo_producto') or ''}</td>"
+            f"<td class=\"d\" style=\"width:140px\">{m.get('nombre_producto') or ''}</td>"
+            f"<td class=\"d\" style=\"width:140px\">&nbsp;</td>"
+            f"<td class=\"d\" style=\"width:140px\">{m.get('codigo_indicador_producto') or ''}</td>"
+            f"<td class=\"d\" style=\"width:140px\">{m.get('nombre_indicador_producto') or ''}</td>"
+            f"<td class=\"d\" style=\"width:140px\">{m.get('nombre') or ''}</td>"
+            f"<td class=\"d\" style=\"width:140px\">{m.get('numero') or ''}</td>"
+            f"<td class=\"d\" style=\"width:140px\">&nbsp;</td>"
+            "</tr>"
+        )
+
+    pat = re.compile(
+        r"(<table\s+class=\"tbl\"[^>]*>\s*<thead>.*?CODIGO DE PRODUCTO.*?</thead>\s*<tbody>)(.*?)(</tbody>\s*</table>)",
+        re.IGNORECASE | re.DOTALL,
+    )
+    return pat.sub(rf"\1{rows_html}\3", template_html, count=1)
+
+
+def _inject_cargo_evaluador(template_html: str, cargo: str) -> str:
+    cargo_txt = (cargo or "").strip()
+    if not cargo_txt:
+        return template_html
+    pat = re.compile(
+        r"(<tr>\s*<th[^>]*>\s*CARGO\s*</th>\s*<td[^>]*>)(.*?)(</td>\s*<td[^>]*>Profesional Universitario</td>\s*</tr>)",
+        re.IGNORECASE | re.DOTALL,
+    )
+    return pat.sub(rf"\1{cargo_txt}\3", template_html, count=1)
+
+
+def _logo_data_uri(base_dir: Path) -> str:
+    candidates = list(base_dir.glob("Logos-Gobern*horizontal.png"))
+    if not candidates:
+        return ""
+    try:
+        raw = candidates[0].read_bytes()
+        b64 = base64.b64encode(raw).decode("ascii")
+        return f"data:image/png;base64,{b64}"
+    except Exception:
+        return ""
+
+
+def render_evaluador_template_html(
+    db: Session,
+    form_id: int,
+    template_key: str,
+    contenido_html: str,
+    nombre_evaluador: str,
+    cargo_evaluador: str | None = None,
+    concepto_tecnico_favorable_dep: str | None = None,
+    concepto_sectorial_favorable_dep: str | None = None,
+    proyecto_viable_dep: str | None = None,
+) -> tuple[str, str]:
+    filled, file_name, base_dir = _render_evaluador_filled_content(
+        db=db,
+        form_id=form_id,
+        template_key=template_key,
+        contenido_html=contenido_html,
+        nombre_evaluador=nombre_evaluador,
+        cargo_evaluador=cargo_evaluador,
+        concepto_tecnico_favorable_dep=concepto_tecnico_favorable_dep,
+        concepto_sectorial_favorable_dep=concepto_sectorial_favorable_dep,
+        proyecto_viable_dep=proyecto_viable_dep,
+    )
+
+    logo_uri = _logo_data_uri(base_dir)
+    logo_html = f"<img src=\"{logo_uri}\" alt=\"Logo Gobernacion\" />" if logo_uri else ""
+    full_html = (
+        "<!doctype html><html><head><meta charset='utf-8'/>"
+        "<title> </title>"
+        "<style>"
+        "@page{margin:26mm 8mm 22mm 8mm;}"
+        "body{margin:0;padding:0;background:#fff;}"
+        ".doc-shell{max-width:730px;margin:0 auto;}"
+        ".doc-header{text-align:center;margin:0;line-height:1;}"
+        ".doc-header img{width:120px;max-width:30vw;height:auto;display:inline-block;}"
+        ".doc-content{display:block;}"
+        ".doc-footer{text-align:center;font-size:11px;line-height:1.35;margin:0;page-break-inside:avoid;}"
+        ".doc-footer .nota{font-weight:700;}"
+        "@media print{"
+        "  body{padding:0 !important;}"
+        "  .doc-header{position:fixed;top:0mm;left:0;right:0;margin:0;z-index:10;}"
+        "  .doc-footer{position:fixed;bottom:0mm;left:0;right:0;margin:0;z-index:10;}"
+        "  .doc-shell{max-width:730px;margin:0 auto;}"
+        "}"
+        "</style>"
+        "</head><body>"
+        "<div class='doc-shell'>"
+        f"<div class='doc-header'>{logo_html}</div>"
+        f"<div class='doc-content'>{filled}</div>"
+        "<div class='doc-footer'>"
+        "<div><span class='nota'>Nota:</span> Este documento NO es valido como certificacion</div>"
+        "<div>Calle 4 Carrera 7 Esquina Quinto piso</div>"
+        "<div>Telefonos 8244515 - 8242973</div>"
+        "</div>"
+        "</div>"
+        "</body></html>"
+    )
+    return full_html, file_name
+
+
+def _render_evaluador_filled_content(
+    db: Session,
+    form_id: int,
+    template_key: str,
+    contenido_html: str,
+    nombre_evaluador: str,
+    cargo_evaluador: str | None = None,
+    concepto_tecnico_favorable_dep: str | None = None,
+    concepto_sectorial_favorable_dep: str | None = None,
+    proyecto_viable_dep: str | None = None,
+) -> tuple[str, str, Path]:
+    if template_key not in _EVAL_TEMPLATE_MAP:
+        raise ValueError("Template no soportado")
+
+    base_dir = Path(__file__).resolve().parents[2]
+    template_path = base_dir / _EVAL_TEMPLATE_MAP[template_key]
+    if not template_path.exists():
+        raise ValueError(f"No existe plantilla: {_EVAL_TEMPLATE_MAP[template_key]}")
+
+    base = _fetch_base_context(db, form_id)
+    tokens = _build_eval_tokens(base, nombre_evaluador, cargo_evaluador or "")
+    raw = template_path.read_text(encoding="utf-8", errors="ignore")
+    filled = _replace_tokens_in_html(raw, tokens)
+
+    heading = (
+        "EVALUANDO EL PROYECTO, SE HACEN LAS SIGUIENTES OBSERVACIONES"
+        if template_key == "observaciones"
+        else "MOTIVACION DE LA VIABILIDAD"
+    )
+    filled = _inject_section_html(filled, heading, contenido_html)
+    if template_key == "viabilidad":
+        filled = _inject_viabilidad_checks(
+            filled,
+            concepto_tecnico_dep=concepto_tecnico_favorable_dep,
+            concepto_sectorial_dep=concepto_sectorial_favorable_dep,
+            proyecto_viable_dep=proyecto_viable_dep,
+        )
+        filled = _inject_viabilidad_productos(filled, base.get("metas", []) or [])
+    filled = _inject_cargo_evaluador(filled, cargo_evaluador or "")
+
+    file_name = "observaciones.pdf" if template_key == "observaciones" else "viabilidad.pdf"
+    return filled, file_name, base_dir
+
+
+def render_evaluador_template_pdf(
+    db: Session,
+    form_id: int,
+    template_key: str,
+    contenido_html: str,
+    nombre_evaluador: str,
+    concepto_tecnico_favorable_dep: str | None = None,
+    concepto_sectorial_favorable_dep: str | None = None,
+    proyecto_viable_dep: str | None = None,
+) -> tuple[BytesIO, str]:
+    filled, file_name, base_dir = _render_evaluador_filled_content(
+        db=db,
+        form_id=form_id,
+        template_key=template_key,
+        contenido_html=contenido_html,
+        nombre_evaluador=nombre_evaluador,
+        concepto_tecnico_favorable_dep=concepto_tecnico_favorable_dep,
+        concepto_sectorial_favorable_dep=concepto_sectorial_favorable_dep,
+        proyecto_viable_dep=proyecto_viable_dep,
+    )
+
+    try:
+        from playwright.sync_api import sync_playwright
+    except Exception as e:
+        raise ValueError(f"Playwright no disponible para PDF: {e}")
+
+    logo_uri = _logo_data_uri(base_dir)
+    header_logo = f"<div style='width:100%;text-align:center;'><img src='{logo_uri}' style='height:76px;' /></div>" if logo_uri else "<div></div>"
+    footer_html = (
+        "<div style='width:100%;font-size:9px;text-align:center;line-height:1.2;'>"
+        "<div><b>Nota:</b> Este documento NO es valido como certificacion</div>"
+        "<div>Calle 4 Carrera 7 Esquina Quinto piso</div>"
+        "<div>Telefonos 8244515 - 8242973</div>"
+        "</div>"
+    )
+
+    html = (
+        "<!doctype html><html><head><meta charset='utf-8'/>"
+        "<style>@page{size:A4;} body{margin:0;padding:0;} .doc{max-width:730px;margin:0 auto;}</style>"
+        "</head><body>"
+        f"<div class='doc'>{filled}</div>"
+        "</body></html>"
+    )
+
+    try:
+        with sync_playwright() as p:
+            executable = p.chromium.executable_path
+            if not executable or not Path(executable).exists():
+                raise ValueError(
+                    "Chromium de Playwright no instalado. Ejecuta: python -m playwright install chromium"
+                )
+            browser = p.chromium.launch()
+            page = browser.new_page()
+            page.set_content(html, wait_until="networkidle")
+            pdf_bytes = page.pdf(
+                format="A4",
+                print_background=True,
+                display_header_footer=True,
+                header_template=header_logo,
+                footer_template=footer_html,
+                margin={"top": "36mm", "bottom": "28mm", "left": "8mm", "right": "8mm"},
+            )
+            browser.close()
+    except Exception as e:
+        raise ValueError(f"Fallo Playwright al generar PDF: {repr(e)}")
+
+    bio = BytesIO(pdf_bytes)
+    bio.seek(0)
+    return bio, file_name
+
+
+async def render_evaluador_template_pdf_async(
+    db: Session,
+    form_id: int,
+    template_key: str,
+    contenido_html: str,
+    nombre_evaluador: str,
+    cargo_evaluador: str | None = None,
+    concepto_tecnico_favorable_dep: str | None = None,
+    concepto_sectorial_favorable_dep: str | None = None,
+    proyecto_viable_dep: str | None = None,
+) -> tuple[BytesIO, str]:
+    filled, file_name, base_dir = _render_evaluador_filled_content(
+        db=db,
+        form_id=form_id,
+        template_key=template_key,
+        contenido_html=contenido_html,
+        nombre_evaluador=nombre_evaluador,
+        cargo_evaluador=cargo_evaluador,
+        concepto_tecnico_favorable_dep=concepto_tecnico_favorable_dep,
+        concepto_sectorial_favorable_dep=concepto_sectorial_favorable_dep,
+        proyecto_viable_dep=proyecto_viable_dep,
+    )
+
+    logo_uri = _logo_data_uri(base_dir)
+    header_logo = f"<div style='width:100%;text-align:center;'><img src='{logo_uri}' style='height:76px;' /></div>" if logo_uri else "<div></div>"
+    footer_html = (
+        "<div style='width:100%;font-size:9px;text-align:center;line-height:1.2;'>"
+        "<div><b>Nota:</b> Este documento NO es valido como certificacion</div>"
+        "<div>Calle 4 Carrera 7 Esquina Quinto piso</div>"
+        "<div>Telefonos 8244515 - 8242973</div>"
+        "</div>"
+    )
+    html = (
+        "<!doctype html><html><head><meta charset='utf-8'/>"
+        "<style>@page{size:A4;} body{margin:0;padding:0;} .doc{max-width:730px;margin:0 auto;}</style>"
+        "</head><body>"
+        f"<div class='doc'>{filled}</div>"
+        "</body></html>"
+    )
+
+    try:
+        pdf_bytes = await asyncio.to_thread(
+            _generate_pdf_sync_playwright,
+            html,
+            header_logo,
+            footer_html,
+        )
+    except Exception as e:
+        raise ValueError(f"Fallo Playwright al generar PDF: {repr(e)}")
+
+    bio = BytesIO(pdf_bytes)
+    bio.seek(0)
+    return bio, file_name
+
+
+def _generate_pdf_sync_playwright(html: str, header_logo: str, footer_html: str) -> bytes:
+    try:
+        if sys.platform.startswith("win"):
+            asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+        from playwright.sync_api import sync_playwright
+    except Exception as e:
+        raise ValueError(f"Playwright no disponible para PDF: {e}")
+
+    with sync_playwright() as p:
+        executable = p.chromium.executable_path
+        if not executable or not Path(executable).exists():
+            raise ValueError(
+                "Chromium de Playwright no instalado. Ejecuta: python -m playwright install chromium"
+            )
+        browser = p.chromium.launch()
+        page = browser.new_page()
+        page.set_content(html, wait_until="networkidle")
+        pdf_bytes = page.pdf(
+            format="A4",
+            print_background=True,
+            display_header_footer=True,
+            header_template=header_logo,
+            footer_template=footer_html,
+            margin={"top": "30mm", "bottom": "30mm", "left": "8mm", "right": "8mm"},
+        )
+        browser.close()
+    return pdf_bytes
+

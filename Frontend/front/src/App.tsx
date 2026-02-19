@@ -1,10 +1,11 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Loader2, Plus, Trash2, Download, ArrowLeft, PlusCircle, Search, RefreshCcw } from "lucide-react";
 
 type ID = number;
@@ -180,6 +181,40 @@ function getYears(anio_inicio?: number | null): number[] {
 
 /* ---------- Lista ---------- */
 type ProyectoListaItemFlex = Record<string, any> & { nombre?: string; nombre_proyecto?: string; cod_id_mga?: number; id_dependencia?: number; dependencia_id?: number };
+type RolApp = "dependencia" | "radicador" | "evaluador";
+type DocEvaluador = "observaciones" | "viabilidad";
+
+interface ProyectoEvaluador {
+  id: number | null;
+  nombre: string;
+  codMGA: string;
+  dependencia: string;
+}
+
+interface ObservacionEvaluacionItem {
+  id: number;
+  id_formulario: number;
+  tipo_documento: "OBSERVACIONES" | "VIABILIDAD";
+  contenido_html: string;
+  nombre_evaluador: string;
+  cargo_evaluador?: string | null;
+  concepto_tecnico_favorable_dep?: "SI" | "NO" | null;
+  concepto_sectorial_favorable_dep?: "SI" | "NO" | null;
+  proyecto_viable_dep?: "SI" | "NO" | null;
+  created_at: string;
+}
+
+type SiNo = "" | "SI" | "NO";
+
+interface RadicacionState {
+  numero_radicacion: string;
+  fecha_radicacion: string;
+  bpin: string;
+  soportes_folios: number;
+  soportes_planos: number;
+  soportes_cds: number;
+  soportes_otros: number;
+}
 
 /* Extrae id si existe con distintos nombres */
 function getRowId(p: ProyectoListaItemFlex): number | null {
@@ -198,9 +233,47 @@ function getRowId(p: ProyectoListaItemFlex): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+function sanitizeSearchTerm(raw: string): string {
+  return (raw || "")
+    .replace(/data:image\/[a-zA-Z]+;base64,[A-Za-z0-9+/=]+/g, " ")
+    .replace(/<[^>]*>/g, " ")
+    .replace(/\s+/g, " ")
+    .slice(0, 180);
+}
+
+function todayISODate(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
 /* ========== Componente principal ========== */
 export default function App() {
-  const [vista, setVista] = useState<"lista" | "form">("lista");
+  const [vista, setVista] = useState<"home" | "lista" | "form" | "evaluador_doc">("home");
+  const [rol, setRol] = useState<RolApp | null>(null);
+  const [docEvaluador, setDocEvaluador] = useState<DocEvaluador | null>(null);
+  const [proyectoEvaluador, setProyectoEvaluador] = useState<ProyectoEvaluador | null>(null);
+  const [contenidoEvaluador, setContenidoEvaluador] = useState("");
+  const [nombreEvaluador, setNombreEvaluador] = useState("");
+  const [cargoEvaluador, setCargoEvaluador] = useState("");
+  const [conceptoTecnicoDep, setConceptoTecnicoDep] = useState<SiNo>("");
+  const [conceptoSectorialDep, setConceptoSectorialDep] = useState<SiNo>("");
+  const [proyectoViableDep, setProyectoViableDep] = useState<SiNo>("");
+  const editorRef = useRef<HTMLDivElement | null>(null);
+  const imageInputRef = useRef<HTMLInputElement | null>(null);
+  const selectedImageRef = useRef<HTMLImageElement | null>(null);
+  const [openRadicacion, setOpenRadicacion] = useState(false);
+  const [radicacionLoading, setRadicacionLoading] = useState(false);
+  const [radicacionSaving, setRadicacionSaving] = useState(false);
+  const [radicacionFormId, setRadicacionFormId] = useState<number | null>(null);
+  const [radicacionProyecto, setRadicacionProyecto] = useState<string>("");
+  const [radicacionState, setRadicacionState] = useState<RadicacionState>({
+    numero_radicacion: "",
+    fecha_radicacion: todayISODate(),
+    bpin: "",
+    soportes_folios: 0,
+    soportes_planos: 0,
+    soportes_cds: 0,
+    soportes_otros: 0,
+  });
 
   // LISTA
   const [deps, setDeps] = useState<Opcion[]>([]);
@@ -828,6 +901,313 @@ export default function App() {
     }
   }
 
+  function initialDocContent(tipo: DocEvaluador): string {
+    if (tipo === "viabilidad") {
+      return "<p><strong>MOTIVACION DE LA VIABILIDAD:</strong></p><p><br></p>";
+    }
+    return "<p><strong>EVALUANDO EL PROYECTO, SE HACEN LAS SIGUIENTES OBSERVACIONES:</strong></p><p><br></p>";
+  }
+
+  function setSelectedEditorImage(img: HTMLImageElement | null) {
+    if (selectedImageRef.current) {
+      selectedImageRef.current.style.outline = "";
+    }
+    selectedImageRef.current = img;
+    if (img) {
+      img.style.outline = "2px solid #64748b";
+      img.style.outlineOffset = "2px";
+    }
+  }
+
+  function updateEditorContentFromDom() {
+    if (!editorRef.current) return;
+    setContenidoEvaluador(editorRef.current.innerHTML);
+  }
+
+  function resizeSelectedImage(factor: number) {
+    const img = selectedImageRef.current;
+    if (!img) {
+      alert("Selecciona una imagen en el editor.");
+      return;
+    }
+    const current = img.clientWidth || parseInt(img.style.width || "0", 10) || img.naturalWidth || 300;
+    const next = Math.max(80, Math.min(1200, Math.round(current * factor)));
+    img.style.width = `${next}px`;
+    img.style.height = "auto";
+    img.style.maxWidth = "100%";
+    updateEditorContentFromDom();
+  }
+
+  function fitSelectedImage() {
+    const img = selectedImageRef.current;
+    if (!img) {
+      alert("Selecciona una imagen en el editor.");
+      return;
+    }
+    img.style.width = "100%";
+    img.style.height = "auto";
+    img.style.maxWidth = "100%";
+    updateEditorContentFromDom();
+  }
+
+  async function openEvaluadorDoc(p: ProyectoListaItemFlex, tipo: DocEvaluador) {
+    const rowId = getRowId(p);
+    const nombreFila = String(p.nombre ?? p.nombre_proyecto ?? "(sin nombre)");
+    const codFila = String(p.cod_id_mga ?? p.cod_mga ?? p.codigo_mga ?? "");
+    const depFila = p.id_dependencia ?? p.dependencia_id;
+    const depNombre = deps.find(x => x.id === depFila)?.nombre ?? String(depFila ?? "");
+
+    setProyectoEvaluador({
+      id: rowId,
+      nombre: nombreFila,
+      codMGA: codFila,
+      dependencia: depNombre,
+    });
+    setDocEvaluador(tipo);
+    const baseContent = initialDocContent(tipo);
+    setContenidoEvaluador(baseContent);
+    setNombreEvaluador("");
+    setCargoEvaluador("");
+    setConceptoTecnicoDep("");
+    setConceptoSectorialDep("");
+    setProyectoViableDep("");
+    setSelectedEditorImage(null);
+    setVista("evaluador_doc");
+    setTimeout(() => {
+      if (editorRef.current) editorRef.current.innerHTML = baseContent;
+    }, 0);
+
+    if (!rowId) return;
+    try {
+      const res = await fetch(`${API_BASE_DEFAULT}/proyecto/formulario/${rowId}/observaciones`);
+      if (!res.ok) return;
+      const data: ObservacionEvaluacionItem[] = await res.json();
+      const tipoDb = tipo === "viabilidad" ? "VIABILIDAD" : "OBSERVACIONES";
+      const ultimo = data.find((x) => x.tipo_documento === tipoDb);
+      if (!ultimo) return;
+      setContenidoEvaluador(ultimo.contenido_html || baseContent);
+      setNombreEvaluador(ultimo.nombre_evaluador || "");
+      setCargoEvaluador(String(ultimo.cargo_evaluador || ""));
+      setConceptoTecnicoDep((ultimo.concepto_tecnico_favorable_dep as SiNo) || "");
+      setConceptoSectorialDep((ultimo.concepto_sectorial_favorable_dep as SiNo) || "");
+      setProyectoViableDep((ultimo.proyecto_viable_dep as SiNo) || "");
+      setTimeout(() => {
+        if (editorRef.current) editorRef.current.innerHTML = ultimo.contenido_html || baseContent;
+      }, 0);
+    } catch {
+      // Si falla la consulta, dejamos el contenido base.
+    }
+  }
+
+  async function ensureRowFormId(p: ProyectoListaItemFlex): Promise<number | null> {
+    const rid = getRowId(p);
+    if (rid != null) return rid;
+
+    const nombre = String(p.nombre ?? p.nombre_proyecto ?? "").trim();
+    const cod = Number(p.cod_id_mga ?? p.cod_mga ?? p.codigo_mga ?? NaN);
+    const dep = Number(p.id_dependencia ?? p.dependencia_id ?? NaN);
+    if (!Number.isFinite(cod) || !Number.isFinite(dep)) return null;
+
+    const r = await fetch(`${API_BASE_DEFAULT}/proyecto/formulario/minimo`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        nombre_proyecto: nombre || `Proyecto ${cod}`,
+        cod_id_mga: Number(cod),
+        id_dependencia: Number(dep),
+      }),
+    });
+    if (!r.ok) return null;
+    const j = await r.json();
+    const id = Number(j.id);
+    return Number.isFinite(id) ? id : null;
+  }
+
+  async function openRadicacionModal(p: ProyectoListaItemFlex) {
+    try {
+      setRadicacionLoading(true);
+      const formId = await ensureRowFormId(p);
+      if (!formId) {
+        alert("No se pudo obtener el proyecto para radicar.");
+        return;
+      }
+      const form = await fetchJson(`/proyecto/formulario/${formId}`);
+      setRadicacionFormId(formId);
+      setRadicacionProyecto(String(form?.nombre_proyecto ?? p.nombre ?? p.nombre_proyecto ?? ""));
+      setRadicacionState({
+        numero_radicacion: String(form?.numero_radicacion ?? ""),
+        fecha_radicacion: String(form?.fecha_radicacion ?? "") || todayISODate(),
+        bpin: String(form?.bpin ?? ""),
+        soportes_folios: Number(form?.soportes_folios ?? 0) || 0,
+        soportes_planos: Number(form?.soportes_planos ?? 0) || 0,
+        soportes_cds: Number(form?.soportes_cds ?? 0) || 0,
+        soportes_otros: Number(form?.soportes_otros ?? 0) || 0,
+      });
+      setOpenRadicacion(true);
+    } catch {
+      alert("No se pudo cargar la radicacion del proyecto.");
+    } finally {
+      setRadicacionLoading(false);
+    }
+  }
+
+  async function saveRadicacion() {
+    if (!radicacionFormId) {
+      alert("No hay proyecto seleccionado.");
+      return;
+    }
+    try {
+      setRadicacionSaving(true);
+      const res = await fetch(`${API_BASE_DEFAULT}/proyecto/formulario/${radicacionFormId}/radicacion`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          numero_radicacion: radicacionState.numero_radicacion,
+          fecha_radicacion: radicacionState.fecha_radicacion || todayISODate(),
+          bpin: radicacionState.bpin,
+          soportes_folios: Math.max(0, Number(radicacionState.soportes_folios || 0)),
+          soportes_planos: Math.max(0, Number(radicacionState.soportes_planos || 0)),
+          soportes_cds: Math.max(0, Number(radicacionState.soportes_cds || 0)),
+          soportes_otros: Math.max(0, Number(radicacionState.soportes_otros || 0)),
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.text().catch(() => "");
+        throw new Error(err || "No se pudo guardar la radicacion.");
+      }
+      setOpenRadicacion(false);
+      await queryLista(false);
+    } catch (e: any) {
+      alert(e?.message || "Error guardando radicacion.");
+    } finally {
+      setRadicacionSaving(false);
+    }
+  }
+
+  function applyEditorCommand(command: string, value?: string) {
+    if (!editorRef.current) return;
+    editorRef.current.focus();
+    document.execCommand(command, false, value);
+    setContenidoEvaluador(editorRef.current.innerHTML);
+  }
+
+  function onImageSelected(file?: File) {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const src = String(reader.result ?? "");
+      if (!src) return;
+      applyEditorCommand("insertImage", src);
+      if (editorRef.current) {
+        const imgs = editorRef.current.querySelectorAll("img");
+        const last = imgs[imgs.length - 1] as HTMLImageElement | undefined;
+        if (last) {
+          last.style.maxWidth = "100%";
+          last.style.height = "auto";
+          last.style.width = "480px";
+          setSelectedEditorImage(last);
+          updateEditorContentFromDom();
+        }
+      }
+      if (imageInputRef.current) imageInputRef.current.value = "";
+    };
+    reader.readAsDataURL(file);
+  }
+
+  function htmlHasUserContent(html: string) {
+    const tmp = document.createElement("div");
+    tmp.innerHTML = html;
+    return (tmp.textContent || "").trim().length > 0 || tmp.querySelector("img") != null;
+  }
+
+  async function guardarRegistroEvaluador(tipo: "OBSERVACIONES" | "VIABILIDAD", html: string) {
+    const formId = proyectoEvaluador?.id;
+    if (!formId) {
+      throw new Error("No se encontro un formulario valido para guardar la observacion.");
+    }
+    const res = await fetch(`${API_BASE_DEFAULT}/proyecto/formulario/${formId}/observaciones`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        tipo_documento: tipo,
+        contenido_html: html,
+        nombre_evaluador: nombreEvaluador.trim(),
+        cargo_evaluador: cargoEvaluador.trim(),
+        concepto_tecnico_favorable_dep: tipo === "VIABILIDAD" ? (conceptoTecnicoDep || null) : null,
+        concepto_sectorial_favorable_dep: tipo === "VIABILIDAD" ? (conceptoSectorialDep || null) : null,
+        proyecto_viable_dep: tipo === "VIABILIDAD" ? (proyectoViableDep || null) : null,
+      }),
+    });
+    if (!res.ok) {
+      const err = await res.text().catch(() => "");
+      throw new Error(err || "No se pudo guardar el registro de evaluacion.");
+    }
+  }
+
+  async function descargarPdfEvaluador() {
+    if (!docEvaluador || !proyectoEvaluador) return;
+    const html = editorRef.current?.innerHTML ?? contenidoEvaluador;
+    if (!htmlHasUserContent(html)) {
+      alert("Completa el contenido antes de descargar.");
+      return;
+    }
+    if (!nombreEvaluador.trim()) {
+      alert("Ingresa el nombre del evaluador.");
+      return;
+    }
+    if (!cargoEvaluador.trim()) {
+      alert("Ingresa el cargo del evaluador.");
+      return;
+    }
+
+    const tipoDoc = docEvaluador === "viabilidad" ? "VIABILIDAD" : "OBSERVACIONES";
+    if (tipoDoc === "VIABILIDAD") {
+      if (!conceptoTecnicoDep || !conceptoSectorialDep || !proyectoViableDep) {
+        alert("Completa los checks del Analisis de viabilidad.");
+        return;
+      }
+    }
+    try {
+      await guardarRegistroEvaluador(tipoDoc, html);
+    } catch (e: any) {
+      alert(e?.message || "No fue posible guardar en BD.");
+      return;
+    }
+
+    const formId = proyectoEvaluador.id;
+    if (!formId) {
+      alert("No se encontro el ID del proyecto para generar el documento.");
+      return;
+    }
+    const docKey = docEvaluador === "viabilidad" ? "viabilidad" : "observaciones";
+    const res = await fetch(`${API_BASE_DEFAULT}/descarga/evaluador/pdf/${docKey}/${formId}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contenido_html: html,
+        nombre_evaluador: nombreEvaluador.trim(),
+        cargo_evaluador: cargoEvaluador.trim(),
+        concepto_tecnico_favorable_dep: tipoDoc === "VIABILIDAD" ? (conceptoTecnicoDep || null) : null,
+        concepto_sectorial_favorable_dep: tipoDoc === "VIABILIDAD" ? (conceptoSectorialDep || null) : null,
+        proyecto_viable_dep: tipoDoc === "VIABILIDAD" ? (proyectoViableDep || null) : null,
+      }),
+    });
+    if (!res.ok) {
+      const err = await res.text().catch(() => "");
+      alert(err || "No fue posible generar el PDF del documento.");
+      return;
+    }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = docKey === "viabilidad" ? "viabilidad.pdf" : "observaciones.pdf";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }
+
 
   function sanitizeFileName(s: string) {
     return (s || "Formulario").trim().replace(/\s+/g, "_").replace(/[^\w\-\.]+/g, "");
@@ -889,15 +1269,91 @@ export default function App() {
   };
 
   /* ---------- RENDER ---------- */
+  if (vista === "home") {
+    return (
+      <div key="home-view" className="min-h-screen bg-gradient-to-b from-slate-50 to-white p-4 md:p-8">
+        <div className="mx-auto max-w-4xl space-y-6">
+          <div className="text-center space-y-2">
+            <h1 className="text-3xl md:text-4xl font-bold tracking-tight">Ingreso al Sistema</h1>
+            <p className="text-slate-600">Selecciona el rol para continuar</p>
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-3">
+            <Card className="shadow-sm">
+              <CardContent className="p-6 space-y-4">
+                <h2 className="text-xl font-semibold">Dependencia</h2>
+                <p className="text-sm text-slate-600">Accede al flujo actual para creacion, edicion y descargas del proyecto.</p>
+                <Button
+                  className="w-full"
+                  onClick={() => {
+                    setSelectedEditorImage(null);
+                    setRol("dependencia");
+                    setVista("lista");
+                  }}
+                >
+                  Continuar como Dependencia
+                </Button>
+              </CardContent>
+            </Card>
+
+            <Card className="shadow-sm">
+              <CardContent className="p-6 space-y-4">
+                <h2 className="text-xl font-semibold">Radicador</h2>
+                <p className="text-sm text-slate-600">Gestiona datos de radicacion y soportes del proyecto.</p>
+                <Button
+                  className="w-full"
+                  onClick={() => {
+                    setSelectedEditorImage(null);
+                    setRol("radicador");
+                    setVista("lista");
+                  }}
+                >
+                  Continuar como Radicador
+                </Button>
+              </CardContent>
+            </Card>
+
+            <Card className="shadow-sm">
+              <CardContent className="p-6 space-y-4">
+                <h2 className="text-xl font-semibold">Evaluador</h2>
+                <p className="text-sm text-slate-600">Consulta proyectos y genera Observaciones o Viabilidad en formato PDF.</p>
+                <Button
+                  className="w-full"
+                  onClick={() => {
+                    setSelectedEditorImage(null);
+                    setRol("evaluador");
+                    setVista("lista");
+                  }}
+                >
+                  Continuar como Evaluador
+                </Button>
+              </CardContent>
+            </Card>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (vista === "lista") {
     return (
-      <div className="min-h-screen bg-gradient-to-b from-slate-50 to-white p-4 md:p-8">
+      <div key="lista-view" className="min-h-screen bg-gradient-to-b from-slate-50 to-white p-4 md:p-8">
         <div className="mx-auto max-w-6xl space-y-6">
           <div className="flex items-center justify-between">
-            <h1 className="text-2xl md:text-3xl font-bold tracking-tight">Proyectos</h1>
-            <Button className="gap-2" onClick={() => { limpiarFormulario(); setFormId(null); setVista("form"); }}>
-              <PlusCircle className="h-4 w-4"/> Nuevo proyecto
-            </Button>
+            <div className="space-y-1">
+              <h1 className="text-2xl md:text-3xl font-bold tracking-tight">Proyectos</h1>
+              <p className="text-sm text-slate-600">
+                Rol activo: <span className="font-semibold capitalize">{rol ?? "sin rol"}</span>
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              {rol === "dependencia" && (
+                <Button className="gap-2" onClick={() => { limpiarFormulario(); setFormId(null); setVista("form"); }}>
+                  <PlusCircle className="h-4 w-4"/> Nuevo proyecto
+                </Button>
+              )}
+              <Button variant="outline" onClick={() => setVista("home")}>Cambiar rol</Button>
+            </div>
           </div>
 
           {/* Filtros */}
@@ -907,7 +1363,14 @@ export default function App() {
                 <Label>Nombre</Label>
                 <Input
                   value={fNombre}
-                  onChange={(e) => setFNombre(e.target.value)}
+                  onChange={(e) => setFNombre(sanitizeSearchTerm(e.target.value))}
+                  onPaste={(e) => {
+                    e.preventDefault();
+                    const txt = e.clipboardData?.getData("text/plain") ?? "";
+                    setFNombre(sanitizeSearchTerm(txt));
+                  }}
+                  onDrop={(e) => e.preventDefault()}
+                  onDragOver={(e) => e.preventDefault()}
                   placeholder="Buscar por nombre…"
                 />
               </div>
@@ -962,11 +1425,40 @@ export default function App() {
                           return d ? d.nombre : depFila ?? "";
                         })()}</td>
                         <td className="px-3 py-2 text-right">
-                          <Button
-                            size="sm"
-                            variant="secondary"
-                            onClick={() => openFromRow(p)}
-                          >Abrir</Button>
+                          {rol === "dependencia" ? (
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              onClick={() => openFromRow(p)}
+                            >
+                              Abrir
+                            </Button>
+                          ) : rol === "radicador" ? (
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              disabled={radicacionLoading}
+                              onClick={() => { void openRadicacionModal(p); }}
+                            >
+                              Radicar
+                            </Button>
+                          ) : (
+                            <div className="flex items-center justify-end gap-2">
+                              <Button
+                                size="sm"
+                                variant="secondary"
+                                onClick={() => { void openEvaluadorDoc(p, "observaciones"); }}
+                              >
+                                Observaciones
+                              </Button>
+                              <Button
+                                size="sm"
+                                onClick={() => { void openEvaluadorDoc(p, "viabilidad"); }}
+                              >
+                                Viabilidad
+                              </Button>
+                            </div>
+                          )}
                         </td>
                       </tr>
                     );
@@ -1007,6 +1499,242 @@ export default function App() {
               </select>
             </div>
           </div>
+
+          <Dialog open={openRadicacion} onOpenChange={setOpenRadicacion}>
+            <DialogContent className="max-w-2xl">
+              <DialogHeader>
+                <DialogTitle>Radicar proyecto</DialogTitle>
+              </DialogHeader>
+              <div className="grid gap-4">
+                <div className="text-sm text-slate-600 break-words">
+                  Proyecto: <span className="font-semibold">{radicacionProyecto || "-"}</span>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <Field label="Numero de radicacion">
+                    <Input
+                      value={radicacionState.numero_radicacion}
+                      onChange={(e) => setRadicacionState((p) => ({ ...p, numero_radicacion: e.target.value }))}
+                      placeholder="Ej. 2026-001234"
+                    />
+                  </Field>
+
+                  <Field label="Fecha de radicacion">
+                    <Input
+                      type="date"
+                      value={radicacionState.fecha_radicacion || todayISODate()}
+                      onChange={(e) => setRadicacionState((p) => ({ ...p, fecha_radicacion: e.target.value }))}
+                    />
+                  </Field>
+
+                  <Field label="BPIN">
+                    <Input
+                      value={radicacionState.bpin}
+                      onChange={(e) => setRadicacionState((p) => ({ ...p, bpin: e.target.value }))}
+                      placeholder="Codigo BPIN"
+                    />
+                  </Field>
+                </div>
+
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  <Field label="Folios">
+                    <Input
+                      type="number"
+                      min={0}
+                      value={radicacionState.soportes_folios}
+                      onChange={(e) => setRadicacionState((p) => ({ ...p, soportes_folios: Math.max(0, Number(e.target.value || 0)) }))}
+                    />
+                  </Field>
+                  <Field label="Planos">
+                    <Input
+                      type="number"
+                      min={0}
+                      value={radicacionState.soportes_planos}
+                      onChange={(e) => setRadicacionState((p) => ({ ...p, soportes_planos: Math.max(0, Number(e.target.value || 0)) }))}
+                    />
+                  </Field>
+                  <Field label="CDs">
+                    <Input
+                      type="number"
+                      min={0}
+                      value={radicacionState.soportes_cds}
+                      onChange={(e) => setRadicacionState((p) => ({ ...p, soportes_cds: Math.max(0, Number(e.target.value || 0)) }))}
+                    />
+                  </Field>
+                  <Field label="Otros">
+                    <Input
+                      type="number"
+                      min={0}
+                      value={radicacionState.soportes_otros}
+                      onChange={(e) => setRadicacionState((p) => ({ ...p, soportes_otros: Math.max(0, Number(e.target.value || 0)) }))}
+                    />
+                  </Field>
+                </div>
+
+                <div className="flex justify-end gap-2">
+                  <Button variant="outline" onClick={() => setOpenRadicacion(false)} disabled={radicacionSaving}>
+                    Cancelar
+                  </Button>
+                  <Button onClick={() => { void saveRadicacion(); }} disabled={radicacionSaving}>
+                    {radicacionSaving ? "Guardando..." : "Guardar radicacion"}
+                  </Button>
+                </div>
+              </div>
+            </DialogContent>
+          </Dialog>
+        </div>
+      </div>
+    );
+  }
+
+  if (vista === "evaluador_doc") {
+    const tituloDoc = docEvaluador === "viabilidad" ? "Viabilidad" : "Observaciones";
+    return (
+      <div key="evaluador-doc-view" className="min-h-screen bg-gradient-to-b from-slate-50 to-white p-4 md:p-8">
+        <div className="mx-auto max-w-6xl space-y-6">
+          <div className="flex items-start justify-between gap-3">
+            <div className="space-y-1">
+              <h1 className="text-2xl md:text-3xl font-bold tracking-tight">{tituloDoc}</h1>
+              <p className="text-sm text-slate-600">
+                Proyecto: {proyectoEvaluador?.nombre ?? ""} | Cod. MGA: {proyectoEvaluador?.codMGA ?? ""}
+              </p>
+            </div>
+            <Button
+              variant="outline"
+              className="gap-2"
+              onClick={() => {
+                if (editorRef.current) {
+                  editorRef.current.innerHTML = "";
+                }
+                if (document.activeElement instanceof HTMLElement) {
+                  document.activeElement.blur();
+                }
+                setSelectedEditorImage(null);
+                setVista("lista");
+                setDocEvaluador(null);
+                setProyectoEvaluador(null);
+                setContenidoEvaluador("");
+                setNombreEvaluador("");
+                setCargoEvaluador("");
+                setFNombre("");
+                setFCodMga("");
+                setFDependencia(null);
+              }}
+            >
+              <ArrowLeft className="h-4 w-4" /> Volver a lista
+            </Button>
+          </div>
+
+          <Card className="shadow-sm">
+            <CardContent className="p-4 space-y-4">
+              {docEvaluador === "viabilidad" && (
+                <div className="rounded-xl border p-3 space-y-3 bg-slate-50">
+                  <h3 className="font-semibold text-sm">Analisis de viabilidad (Departamento)</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                    <div className="space-y-1">
+                      <Label>Concepto Tecnico Favorable</Label>
+                      <select
+                        className="h-10 w-full rounded-md border px-3 text-sm"
+                        value={conceptoTecnicoDep}
+                        onChange={(e) => setConceptoTecnicoDep((e.target.value as SiNo) || "")}
+                      >
+                        <option value="">Selecciona...</option>
+                        <option value="SI">SI</option>
+                        <option value="NO">NO</option>
+                      </select>
+                    </div>
+                    <div className="space-y-1">
+                      <Label>Concepto Sectorial Favorable</Label>
+                      <select
+                        className="h-10 w-full rounded-md border px-3 text-sm"
+                        value={conceptoSectorialDep}
+                        onChange={(e) => setConceptoSectorialDep((e.target.value as SiNo) || "")}
+                      >
+                        <option value="">Selecciona...</option>
+                        <option value="SI">SI</option>
+                        <option value="NO">NO</option>
+                      </select>
+                    </div>
+                    <div className="space-y-1">
+                      <Label>El Proyecto es Viable</Label>
+                      <select
+                        className="h-10 w-full rounded-md border px-3 text-sm"
+                        value={proyectoViableDep}
+                        onChange={(e) => setProyectoViableDep((e.target.value as SiNo) || "")}
+                      >
+                        <option value="">Selecciona...</option>
+                        <option value="SI">SI</option>
+                        <option value="NO">NO</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              <div className="flex flex-wrap items-center gap-2 border rounded-lg p-2 bg-slate-50">
+                <Button type="button" variant="outline" size="sm" onClick={() => applyEditorCommand("bold")}>Negrita</Button>
+                <Button type="button" variant="outline" size="sm" onClick={() => applyEditorCommand("italic")}>Cursiva</Button>
+                <Button type="button" variant="outline" size="sm" onClick={() => applyEditorCommand("underline")}>Subrayado</Button>
+                <Button type="button" variant="outline" size="sm" onClick={() => applyEditorCommand("insertUnorderedList")}>Lista</Button>
+                <Button type="button" variant="outline" size="sm" onClick={() => resizeSelectedImage(0.85)}>Img -</Button>
+                <Button type="button" variant="outline" size="sm" onClick={() => resizeSelectedImage(1.15)}>Img +</Button>
+                <Button type="button" variant="outline" size="sm" onClick={fitSelectedImage}>Ajustar imagen</Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => imageInputRef.current?.click()}
+                >
+                  Insertar imagen
+                </Button>
+                <input
+                  ref={imageInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={(e) => onImageSelected(e.target.files?.[0])}
+                />
+              </div>
+
+              <div
+                ref={editorRef}
+                contentEditable
+                suppressContentEditableWarning
+                className="min-h-[420px] rounded-xl border bg-white p-4 outline-none focus:ring-2 focus:ring-slate-300 [&_img]:max-w-full [&_img]:h-auto"
+                onInput={(e) => setContenidoEvaluador((e.target as HTMLDivElement).innerHTML)}
+                onClick={(e) => {
+                  const target = e.target as HTMLElement;
+                  if (target?.tagName === "IMG") {
+                    setSelectedEditorImage(target as HTMLImageElement);
+                  } else {
+                    setSelectedEditorImage(null);
+                  }
+                }}
+              />
+            </CardContent>
+          </Card>
+
+          <Card className="shadow-sm">
+            <CardContent className="p-4 grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
+              <div className="md:col-span-2">
+                <Label>Nombre del evaluador</Label>
+                <Input
+                  value={nombreEvaluador}
+                  onChange={(e) => setNombreEvaluador(e.target.value)}
+                  placeholder="Nombre completo del evaluador"
+                />
+              </div>
+              <div>
+                <Label>Cargo del evaluador</Label>
+                <Input
+                  value={cargoEvaluador}
+                  onChange={(e) => setCargoEvaluador(e.target.value)}
+                  placeholder="Cargo"
+                />
+              </div>
+              <Button onClick={descargarPdfEvaluador}>Descargar PDF</Button>
+            </CardContent>
+          </Card>
         </div>
       </div>
     );
@@ -1014,7 +1742,7 @@ export default function App() {
 
   /* ---------- FORM ---------- */
   return (
-    <div className="min-h-screen bg-gradient-to-b from-slate-50 to-white p-4 md:p-8">
+    <div key="form-view" className="min-h-screen bg-gradient-to-b from-slate-50 to-white p-4 md:p-8">
       <div className="mx-auto max-w-6xl space-y-6">
         {/* Header */}
         <div className="flex items-start justify-between gap-3">

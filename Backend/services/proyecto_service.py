@@ -12,6 +12,7 @@ from Backend.models import (
     Subcategorias as SubcategoriasRel,
     Viabilidad, Viabilidades,
     TipoViabilidad, FuncionarioViabilidad,
+    ObservacionEvaluacion,
 )
 from Backend import schemas
 
@@ -285,6 +286,24 @@ def update_formulario_basicos(db: Session, form_id: int, data: schemas.Formulari
     db.refresh(form)
     return form
 
+
+def update_formulario_radicacion(db: Session, form_id: int, data: schemas.FormularioRadicacionUpsert) -> Formulario:
+    form = db.get(Formulario, form_id)
+    if not form:
+        raise ValueError("Formulario no encontrado")
+
+    form.numero_radicacion = (data.numero_radicacion or "").strip() or None
+    form.fecha_radicacion = data.fecha_radicacion
+    form.bpin = (data.bpin or "").strip() or None
+    form.soportes_folios = max(0, int(data.soportes_folios or 0))
+    form.soportes_planos = max(0, int(data.soportes_planos or 0))
+    form.soportes_cds = max(0, int(data.soportes_cds or 0))
+    form.soportes_otros = max(0, int(data.soportes_otros or 0))
+
+    db.commit()
+    db.refresh(form)
+    return form
+
 def replace_metas(db: Session, form_id: int, meta_ids: List[int]) -> None:
     db.query(Metas).filter(Metas.id_formulario == form_id).delete()
     asignar_metas(db, form_id, meta_ids or [])
@@ -461,3 +480,67 @@ def upsert_respuestas_viab(db, form_id:int, pares:list[tuple[int,str]]):
         to_add.append(Viabilidades(id_formulario=form_id, id_viabilidad=vid, respuesta=resp))
     if to_add: db.add_all(to_add)
     db.commit()
+
+
+def crear_observacion_evaluacion(
+    db: Session,
+    form_id: int,
+    tipo_documento: str,
+    contenido_html: str,
+    nombre_evaluador: str,
+    cargo_evaluador: str | None = None,
+    concepto_tecnico_favorable_dep: str | None = None,
+    concepto_sectorial_favorable_dep: str | None = None,
+    proyecto_viable_dep: str | None = None,
+) -> ObservacionEvaluacion:
+    form = db.get(Formulario, form_id)
+    if not form:
+        raise ValueError("Formulario no encontrado")
+
+    tipo = (tipo_documento or "").strip().upper()
+    if tipo not in ("OBSERVACIONES", "VIABILIDAD"):
+        raise ValueError("tipo_documento invalido. Usa OBSERVACIONES o VIABILIDAD")
+
+    contenido = (contenido_html or "").strip()
+    evaluador = (nombre_evaluador or "").strip()
+    cargo_eval = (cargo_evaluador or "").strip()
+    if not contenido:
+        raise ValueError("contenido_html es requerido")
+    if not evaluador:
+        raise ValueError("nombre_evaluador es requerido")
+    if not cargo_eval:
+        raise ValueError("cargo_evaluador es requerido")
+
+    def _norm_check(v: str | None) -> str | None:
+        if v is None:
+            return None
+        vv = (v or "").strip().upper()
+        return vv if vv in ("SI", "NO") else None
+
+    chk_tec = _norm_check(concepto_tecnico_favorable_dep)
+    chk_sec = _norm_check(concepto_sectorial_favorable_dep)
+    chk_via = _norm_check(proyecto_viable_dep)
+
+    row = ObservacionEvaluacion(
+        id_formulario=form_id,
+        tipo_documento=tipo,
+        contenido_html=contenido,
+        nombre_evaluador=evaluador,
+        cargo_evaluador=cargo_eval,
+        concepto_tecnico_favorable_dep=chk_tec,
+        concepto_sectorial_favorable_dep=chk_sec,
+        proyecto_viable_dep=chk_via,
+    )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return row
+
+
+def listar_observaciones_evaluacion(db: Session, form_id: int) -> list[ObservacionEvaluacion]:
+    return (
+        db.query(ObservacionEvaluacion)
+        .filter(ObservacionEvaluacion.id_formulario == form_id)
+        .order_by(ObservacionEvaluacion.created_at.desc(), ObservacionEvaluacion.id.desc())
+        .all()
+    )

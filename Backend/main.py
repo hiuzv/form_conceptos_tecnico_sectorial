@@ -3,6 +3,11 @@ from Backend.routes import descarga, proyecto
 from Backend.utils.config import settings
 from Backend.utils.database import engine, Base
 from fastapi.middleware.cors import CORSMiddleware
+import asyncio
+import sys
+
+if sys.platform.startswith("win"):
+    asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
 
 app = FastAPI(title="Formulario Web Concepto Tecnico y Sectorial")
 

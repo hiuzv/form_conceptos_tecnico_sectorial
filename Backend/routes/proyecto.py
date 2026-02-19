@@ -121,6 +121,13 @@ def crear_formulario(payload: schemas.FormularioCreate, db: Session = Depends(ge
         id=form_db.id,
         nombre_proyecto=form_db.nombre_proyecto,
         cod_id_mga=form_db.cod_id_mga,
+        numero_radicacion=getattr(form_db, "numero_radicacion", None),
+        fecha_radicacion=getattr(form_db, "fecha_radicacion", None),
+        bpin=getattr(form_db, "bpin", None),
+        soportes_folios=getattr(form_db, "soportes_folios", 0) or 0,
+        soportes_planos=getattr(form_db, "soportes_planos", 0) or 0,
+        soportes_cds=getattr(form_db, "soportes_cds", 0) or 0,
+        soportes_otros=getattr(form_db, "soportes_otros", 0) or 0,
         id_dependencia=form_db.id_dependencia,
         id_linea_estrategica=form_db.id_linea_estrategica,
         id_programa=form_db.id_programa,
@@ -167,6 +174,13 @@ def obtener_formulario(form_id: int, db: Session = Depends(get_db)):
         id=form_db.id,
         nombre_proyecto=form_db.nombre_proyecto or "",
         cod_id_mga=form_db.cod_id_mga or 0,
+        numero_radicacion=getattr(form_db, "numero_radicacion", None),
+        fecha_radicacion=getattr(form_db, "fecha_radicacion", None),
+        bpin=getattr(form_db, "bpin", None),
+        soportes_folios=getattr(form_db, "soportes_folios", 0) or 0,
+        soportes_planos=getattr(form_db, "soportes_planos", 0) or 0,
+        soportes_cds=getattr(form_db, "soportes_cds", 0) or 0,
+        soportes_otros=getattr(form_db, "soportes_otros", 0) or 0,
         id_dependencia=form_db.id_dependencia or 0,
         id_linea_estrategica=form_db.id_linea_estrategica or 0,
         id_programa=form_db.id_programa or 0,
@@ -207,6 +221,11 @@ def crear_borrador_endpoint(db: Session = Depends(get_db)):
 @router.patch("/formulario/{form_id}/basicos", response_model=schemas.FormularioRead)
 def upsert_basicos(form_id:int, payload: schemas.FormularioUpsertBasicos, db: Session = Depends(get_db)):
     proyecto_service.update_formulario_basicos(db, form_id, payload)
+    return obtener_formulario(form_id, db)
+
+@router.put("/formulario/{form_id}/radicacion", response_model=schemas.FormularioRead)
+def upsert_radicacion(form_id:int, payload: schemas.FormularioRadicacionUpsert, db: Session = Depends(get_db)):
+    proyecto_service.update_formulario_radicacion(db, form_id, payload)
     return obtener_formulario(form_id, db)
 
 @router.put("/formulario/{form_id}/metas", response_model=schemas.FormularioRead)
@@ -332,3 +351,30 @@ def put_viab_resp(form_id:int, body:schemas.VarsRespuestaUpsertIn, db:Session=De
     pares = [(int(x.id), (x.respuesta or "").upper()) for x in (body.respuestas or [])]
     proyecto_service.upsert_respuestas_viab(db, form_id, pares)
     return {"ok": True}
+
+
+@router.post("/formulario/{form_id}/observaciones", response_model=schemas.ObservacionEvaluacionRead)
+def crear_observacion(form_id: int, body: schemas.ObservacionEvaluacionCreate, db: Session = Depends(get_db)):
+    try:
+        row = proyecto_service.crear_observacion_evaluacion(
+            db=db,
+            form_id=form_id,
+            tipo_documento=body.tipo_documento,
+            contenido_html=body.contenido_html,
+            nombre_evaluador=body.nombre_evaluador,
+            cargo_evaluador=body.cargo_evaluador,
+            concepto_tecnico_favorable_dep=body.concepto_tecnico_favorable_dep,
+            concepto_sectorial_favorable_dep=body.concepto_sectorial_favorable_dep,
+            proyecto_viable_dep=body.proyecto_viable_dep,
+        )
+        return row
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/formulario/{form_id}/observaciones", response_model=list[schemas.ObservacionEvaluacionRead])
+def listar_observaciones(form_id: int, db: Session = Depends(get_db)):
+    form = proyecto_service.obtener_formulario(db, form_id)
+    if not form:
+        raise HTTPException(status_code=404, detail="Formulario no encontrado")
+    return proyecto_service.listar_observaciones_evaluacion(db, form_id)
