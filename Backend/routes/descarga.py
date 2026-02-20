@@ -2,7 +2,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from Backend.utils.database import SessionLocal
 from Backend.services import descarga_service
 
@@ -16,10 +16,26 @@ def get_db():
         db.close()
 
 
+class IndicadorObjetivoIn(BaseModel):
+    indicador_objetivo_general: str = ""
+    unidad_medida: str = ""
+    meta_resultado: str = ""
+
+class MedicionAjustadaIn(BaseModel):
+    descripcion: str = ""
+    unidad_medida: str = ""
+    meta_programada: str = ""
+    meta_alcanzada: str = ""
+
+
 class EvaluadorTemplateIn(BaseModel):
     contenido_html: str
     nombre_evaluador: str
     cargo_evaluador: str | None = None
+    fecha_evaluador: str | None = None
+    indicadores_objetivo: list[IndicadorObjetivoIn] = Field(default_factory=list)
+    productos_ajustados: list[MedicionAjustadaIn] = Field(default_factory=list)
+    resultados_ajustados: list[MedicionAjustadaIn] = Field(default_factory=list)
     concepto_tecnico_favorable_dep: str | None = None
     concepto_sectorial_favorable_dep: str | None = None
     proyecto_viable_dep: str | None = None
@@ -143,6 +159,10 @@ def render_template_evaluador(doc_key: str, form_id: int, body: EvaluadorTemplat
             contenido_html=body.contenido_html,
             nombre_evaluador=body.nombre_evaluador,
             cargo_evaluador=body.cargo_evaluador,
+            fecha_evaluador=body.fecha_evaluador,
+            indicadores_objetivo=[x.model_dump() for x in body.indicadores_objetivo],
+            productos_ajustados=[x.model_dump() for x in body.productos_ajustados],
+            resultados_ajustados=[x.model_dump() for x in body.resultados_ajustados],
             concepto_tecnico_favorable_dep=body.concepto_tecnico_favorable_dep,
             concepto_sectorial_favorable_dep=body.concepto_sectorial_favorable_dep,
             proyecto_viable_dep=body.proyecto_viable_dep,
@@ -165,6 +185,10 @@ async def render_pdf_evaluador(doc_key: str, form_id: int, body: EvaluadorTempla
             contenido_html=body.contenido_html,
             nombre_evaluador=body.nombre_evaluador,
             cargo_evaluador=body.cargo_evaluador,
+            fecha_evaluador=body.fecha_evaluador,
+            indicadores_objetivo=[x.model_dump() for x in body.indicadores_objetivo],
+            productos_ajustados=[x.model_dump() for x in body.productos_ajustados],
+            resultados_ajustados=[x.model_dump() for x in body.resultados_ajustados],
             concepto_tecnico_favorable_dep=body.concepto_tecnico_favorable_dep,
             concepto_sectorial_favorable_dep=body.concepto_sectorial_favorable_dep,
             proyecto_viable_dep=body.proyecto_viable_dep,

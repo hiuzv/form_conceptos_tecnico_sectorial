@@ -498,8 +498,8 @@ def crear_observacion_evaluacion(
         raise ValueError("Formulario no encontrado")
 
     tipo = (tipo_documento or "").strip().upper()
-    if tipo not in ("OBSERVACIONES", "VIABILIDAD"):
-        raise ValueError("tipo_documento invalido. Usa OBSERVACIONES o VIABILIDAD")
+    if tipo not in ("OBSERVACIONES", "VIABILIDAD", "VIABILIDAD_AJUSTADA"):
+        raise ValueError("tipo_documento invalido. Usa OBSERVACIONES, VIABILIDAD o VIABILIDAD_AJUSTADA")
 
     contenido = (contenido_html or "").strip()
     evaluador = (nombre_evaluador or "").strip()

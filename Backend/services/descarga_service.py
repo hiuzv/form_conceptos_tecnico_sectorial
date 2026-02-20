@@ -660,6 +660,7 @@ def excel_viabilidad_dependencias(db: Session, form_id: int) -> Tuple[BytesIO, s
 _EVAL_TEMPLATE_MAP = {
     "observaciones": "observaciones.html",
     "viabilidad": "viabilidad.html",
+    "viabilidad-ajustada": "viabilidad ajustada.html",
 }
 
 
@@ -676,6 +677,19 @@ def _fmt_money_eval(v: float | int | None) -> str:
 def _fmt_fecha_doc_es(d) -> str:
     if not d:
         return ""
+    if isinstance(d, str):
+        txt = d.strip()
+        if not txt:
+            return ""
+        for fmt in ("%Y-%m-%d", "%d-%m-%Y", "%d/%m/%Y"):
+            try:
+                parsed = datetime.strptime(txt, fmt)
+                d = parsed
+                break
+            except Exception:
+                continue
+        else:
+            return txt
     try:
         day = int(getattr(d, "day"))
         month = int(getattr(d, "month"))
@@ -710,7 +724,12 @@ def _years_and_lookup(estructura_financiera: list[dict]) -> tuple[list[int], dic
     return years, lookup
 
 
-def _build_eval_tokens(base: dict, nombre_evaluador: str, cargo_evaluador: str = "") -> dict[str, str]:
+def _build_eval_tokens(
+    base: dict,
+    nombre_evaluador: str,
+    cargo_evaluador: str = "",
+    fecha_evaluador: str | None = None,
+) -> dict[str, str]:
     ef = base.get("estructura_financiera", []) or []
     years, lookup = _years_and_lookup(ef)
 
@@ -737,6 +756,10 @@ def _build_eval_tokens(base: dict, nombre_evaluador: str, cargo_evaluador: str =
         [x for x in [str(base.get("codigo_sector") or "").strip(), str(base.get("nombre_sector") or "").strip()] if x]
     )
     dependencia = str(base.get("nombre_dependencia") or "").strip()
+    bpin_txt = str(base.get("bpin") or "").strip()
+    titulo_viabilidad = "CONCEPTO DE VIABILIDAD" if bpin_txt else "CONCEPTO DE VIABILIDAD PARA CARGUE"
+
+    fecha_etapa_txt = _fmt_fecha_doc_es(fecha_evaluador) if fecha_evaluador else fecha_rad_txt
 
     tokens: dict[str, str] = {
         "proyecto": str(base.get("nombre_proyecto") or ""),
@@ -745,7 +768,8 @@ def _build_eval_tokens(base: dict, nombre_evaluador: str, cargo_evaluador: str =
         "cod_rad": str(base.get("numero_radicacion") or ""),
         "fecha_rad": fecha_rad_txt,
         "sector": sector_txt,
-        "fecha_etapa": fecha_rad_txt,
+        "titulo_viabilidad": titulo_viabilidad,
+        "fecha_etapa": fecha_etapa_txt,
         "folios": str(base.get("soportes_folios") or 0),
         "planos": str(base.get("soportes_planos") or 0),
         "cds": str(base.get("soportes_cds") or 0),
@@ -756,10 +780,14 @@ def _build_eval_tokens(base: dict, nombre_evaluador: str, cargo_evaluador: str =
         "pb_afro": "0",
         "pb_indigena": "0",
         "dependencia_p": dependencia,
-        "ssepi": str(base.get("bpin") or "Por definir"),
+        "ssepi": bpin_txt or "Por definir",
         "nombre": (nombre_evaluador or "").strip(),
         "cargo_evaluador": (cargo_evaluador or "").strip(),
         "dependencia": "Secretaría de Planeación",
+        "anio_eval1": str(years[0]),
+        "anio_eval2": str(years[1]),
+        "anio_eval3": str(years[2]),
+        "anio_eval4": str(years[3]),
     }
 
     for i in range(4):
@@ -858,6 +886,105 @@ def _inject_viabilidad_productos(template_html: str, metas: list[dict]) -> str:
     return pat.sub(rf"\1{rows_html}\3", template_html, count=1)
 
 
+def _inject_viabilidad_indicadores(template_html: str, indicadores: list[dict] | None) -> str:
+    rows = []
+    for it in indicadores or []:
+        indicador = str((it or {}).get("indicador_objetivo_general") or "").strip()
+        unidad = str((it or {}).get("unidad_medida") or "").strip()
+        meta = str((it or {}).get("meta_resultado") or "").strip()
+        if indicador or unidad or meta:
+            rows.append((indicador, unidad, meta))
+
+    if not rows:
+        rows = [("", "", "")]
+
+    rows_html = ""
+    for indicador, unidad, meta in rows:
+        rows_html += (
+            "<tr>"
+            f"<td class=\"d\" style=\"width:140px\">{indicador or '&nbsp;'}</td>"
+            f"<td class=\"d\" style=\"width:140px\">{unidad or '&nbsp;'}</td>"
+            f"<td class=\"d\" style=\"width:140px\">{meta or '&nbsp;'}</td>"
+            "</tr>"
+        )
+
+    pat = re.compile(
+        r"(<table\s+class=\"tbl\"[^>]*>\s*<tr>\s*<th[^>]*>\s*INDICADOR OBJETIVO GENERAL\s*</th>.*?</tr>)(.*?)(</tbody>\s*</table>)",
+        re.IGNORECASE | re.DOTALL,
+    )
+    return pat.sub(rf"\1{rows_html}\3", template_html, count=1)
+
+
+def _inject_viabilidad_ajustada_productos_resultados(
+    template_html: str,
+    productos: list[dict] | None,
+    resultados: list[dict] | None,
+) -> str:
+    def _normalized_rows(items: list[dict] | None) -> list[tuple[str, str, str, str]]:
+        rows: list[tuple[str, str, str, str]] = []
+        for it in items or []:
+            desc = str((it or {}).get("descripcion") or "").strip()
+            unidad = str((it or {}).get("unidad_medida") or "").strip()
+            meta_prog = str((it or {}).get("meta_programada") or "").strip()
+            meta_alc = str((it or {}).get("meta_alcanzada") or "").strip()
+            if desc or unidad or meta_prog or meta_alc:
+                rows.append((desc, unidad, meta_prog, meta_alc))
+        return rows or [("", "", "", "")]
+
+    prods = _normalized_rows(productos)
+    ress = _normalized_rows(resultados)
+
+    def _first_row_with_label(label: str, rows: list[tuple[str, str, str, str]]) -> str:
+        d, u, mp, ma = rows[0]
+        return (
+            "<tr>"
+            f"<th colspan=\"1\" rowspan=\"{len(rows)}\" class=\"c\" style=\"width:130px\">{label}</th>"
+            f"<td class=\"d\" style=\"width:170px\">{d or '&nbsp;'}</td>"
+            f"<td class=\"d\" style=\"width:140px\">{u or '&nbsp;'}</td>"
+            f"<td class=\"d\" style=\"width:140px\">{mp or '&nbsp;'}</td>"
+            f"<td class=\"d\" style=\"width:140px\">{ma or '&nbsp;'}</td>"
+            "</tr>"
+        )
+
+    def _extra_rows(rows: list[tuple[str, str, str, str]]) -> str:
+        out = ""
+        for d, u, mp, ma in rows[1:]:
+            out += (
+                "<tr>"
+                f"<td class=\"d\" style=\"width:170px\">{d or '&nbsp;'}</td>"
+                f"<td class=\"d\" style=\"width:140px\">{u or '&nbsp;'}</td>"
+                f"<td class=\"d\" style=\"width:140px\">{mp or '&nbsp;'}</td>"
+                f"<td class=\"d\" style=\"width:140px\">{ma or '&nbsp;'}</td>"
+                "</tr>"
+            )
+        return out
+
+    table_html = (
+        "<table  class=\"tbl\" border=\"0\" cellpadding=\"2\" cellspacing=\"0\">"
+        "<tbody>"
+        "<tr>"
+        "<th colspan=\"1\" rowspan=\"1\" class=\"c\" style=\"width:130px\">PRODUCTOS</th>"
+        "<td class=\"c\" style=\"width:170px\">DESCRIPCION</td>"
+        "<td class=\"c\" style=\"width:140px\">UNIDAD DE MEDIDA</td>"
+        "<td class=\"c\" style=\"width:140px\">META PROGRAMADA</td>"
+        "<td class=\"c\" style=\"width:140px\">META ALCANZADA</td>"
+        "</tr>"
+        f"{_first_row_with_label('PRODUCTOS', prods)}"
+        f"{_extra_rows(prods)}"
+        "<tr><td colspan=\"5\" rowspan=\"1\" class=\"c\" style=\"width:130px\">&nbsp;</td></tr>"
+        f"{_first_row_with_label('RESULTADOS', ress)}"
+        f"{_extra_rows(ress)}"
+        "</tbody>"
+        "</table>"
+    )
+
+    pat = re.compile(
+        r"<table\s+class=\"tbl\"[^>]*>\s*<tbody>\s*<tr>\s*<th[^>]*>\s*PRODUCTOS\s*</th>.*?<th[^>]*>\s*RESULTADOS\s*</th>.*?</tbody>\s*</table>",
+        re.IGNORECASE | re.DOTALL,
+    )
+    return pat.sub(table_html, template_html, count=1)
+
+
 def _inject_cargo_evaluador(template_html: str, cargo: str) -> str:
     cargo_txt = (cargo or "").strip()
     if not cargo_txt:
@@ -888,6 +1015,10 @@ def render_evaluador_template_html(
     contenido_html: str,
     nombre_evaluador: str,
     cargo_evaluador: str | None = None,
+    fecha_evaluador: str | None = None,
+    indicadores_objetivo: list[dict] | None = None,
+    productos_ajustados: list[dict] | None = None,
+    resultados_ajustados: list[dict] | None = None,
     concepto_tecnico_favorable_dep: str | None = None,
     concepto_sectorial_favorable_dep: str | None = None,
     proyecto_viable_dep: str | None = None,
@@ -899,6 +1030,10 @@ def render_evaluador_template_html(
         contenido_html=contenido_html,
         nombre_evaluador=nombre_evaluador,
         cargo_evaluador=cargo_evaluador,
+        fecha_evaluador=fecha_evaluador,
+        indicadores_objetivo=indicadores_objetivo,
+        productos_ajustados=productos_ajustados,
+        resultados_ajustados=resultados_ajustados,
         concepto_tecnico_favorable_dep=concepto_tecnico_favorable_dep,
         concepto_sectorial_favorable_dep=concepto_sectorial_favorable_dep,
         proyecto_viable_dep=proyecto_viable_dep,
@@ -947,6 +1082,10 @@ def _render_evaluador_filled_content(
     contenido_html: str,
     nombre_evaluador: str,
     cargo_evaluador: str | None = None,
+    fecha_evaluador: str | None = None,
+    indicadores_objetivo: list[dict] | None = None,
+    productos_ajustados: list[dict] | None = None,
+    resultados_ajustados: list[dict] | None = None,
     concepto_tecnico_favorable_dep: str | None = None,
     concepto_sectorial_favorable_dep: str | None = None,
     proyecto_viable_dep: str | None = None,
@@ -960,27 +1099,47 @@ def _render_evaluador_filled_content(
         raise ValueError(f"No existe plantilla: {_EVAL_TEMPLATE_MAP[template_key]}")
 
     base = _fetch_base_context(db, form_id)
-    tokens = _build_eval_tokens(base, nombre_evaluador, cargo_evaluador or "")
+    tokens = _build_eval_tokens(
+        base,
+        nombre_evaluador,
+        cargo_evaluador or "",
+        fecha_evaluador=fecha_evaluador,
+    )
     raw = template_path.read_text(encoding="utf-8", errors="ignore")
     filled = _replace_tokens_in_html(raw, tokens)
 
-    heading = (
-        "EVALUANDO EL PROYECTO, SE HACEN LAS SIGUIENTES OBSERVACIONES"
-        if template_key == "observaciones"
-        else "MOTIVACION DE LA VIABILIDAD"
-    )
+    heading_by_template = {
+        "observaciones": "EVALUANDO EL PROYECTO, SE HACEN LAS SIGUIENTES OBSERVACIONES",
+        "viabilidad": "MOTIVACION DE LA VIABILIDAD",
+        "viabilidad-ajustada": "MOTIVACION DE LA VIABILIDAD AJUSTADA",
+    }
+    heading = heading_by_template.get(template_key, "MOTIVACION DE LA VIABILIDAD")
     filled = _inject_section_html(filled, heading, contenido_html)
-    if template_key == "viabilidad":
+    if template_key in ("viabilidad", "viabilidad-ajustada"):
         filled = _inject_viabilidad_checks(
             filled,
             concepto_tecnico_dep=concepto_tecnico_favorable_dep,
             concepto_sectorial_dep=concepto_sectorial_favorable_dep,
             proyecto_viable_dep=proyecto_viable_dep,
         )
+    if template_key == "viabilidad":
         filled = _inject_viabilidad_productos(filled, base.get("metas", []) or [])
+        filled = _inject_viabilidad_indicadores(filled, indicadores_objetivo)
+    if template_key == "viabilidad-ajustada":
+        filled = _inject_viabilidad_ajustada_productos_resultados(
+            filled,
+            productos_ajustados,
+            resultados_ajustados,
+        )
     filled = _inject_cargo_evaluador(filled, cargo_evaluador or "")
 
-    file_name = "observaciones.pdf" if template_key == "observaciones" else "viabilidad.pdf"
+    file_name = (
+        "observaciones.pdf"
+        if template_key == "observaciones"
+        else "viabilidad_ajustada.pdf"
+        if template_key == "viabilidad-ajustada"
+        else "viabilidad.pdf"
+    )
     return filled, file_name, base_dir
 
 
@@ -990,6 +1149,11 @@ def render_evaluador_template_pdf(
     template_key: str,
     contenido_html: str,
     nombre_evaluador: str,
+    cargo_evaluador: str | None = None,
+    fecha_evaluador: str | None = None,
+    indicadores_objetivo: list[dict] | None = None,
+    productos_ajustados: list[dict] | None = None,
+    resultados_ajustados: list[dict] | None = None,
     concepto_tecnico_favorable_dep: str | None = None,
     concepto_sectorial_favorable_dep: str | None = None,
     proyecto_viable_dep: str | None = None,
@@ -1000,6 +1164,11 @@ def render_evaluador_template_pdf(
         template_key=template_key,
         contenido_html=contenido_html,
         nombre_evaluador=nombre_evaluador,
+        cargo_evaluador=cargo_evaluador,
+        fecha_evaluador=fecha_evaluador,
+        indicadores_objetivo=indicadores_objetivo,
+        productos_ajustados=productos_ajustados,
+        resultados_ajustados=resultados_ajustados,
         concepto_tecnico_favorable_dep=concepto_tecnico_favorable_dep,
         concepto_sectorial_favorable_dep=concepto_sectorial_favorable_dep,
         proyecto_viable_dep=proyecto_viable_dep,
@@ -1062,6 +1231,10 @@ async def render_evaluador_template_pdf_async(
     contenido_html: str,
     nombre_evaluador: str,
     cargo_evaluador: str | None = None,
+    fecha_evaluador: str | None = None,
+    indicadores_objetivo: list[dict] | None = None,
+    productos_ajustados: list[dict] | None = None,
+    resultados_ajustados: list[dict] | None = None,
     concepto_tecnico_favorable_dep: str | None = None,
     concepto_sectorial_favorable_dep: str | None = None,
     proyecto_viable_dep: str | None = None,
@@ -1073,6 +1246,10 @@ async def render_evaluador_template_pdf_async(
         contenido_html=contenido_html,
         nombre_evaluador=nombre_evaluador,
         cargo_evaluador=cargo_evaluador,
+        fecha_evaluador=fecha_evaluador,
+        indicadores_objetivo=indicadores_objetivo,
+        productos_ajustados=productos_ajustados,
+        resultados_ajustados=resultados_ajustados,
         concepto_tecnico_favorable_dep=concepto_tecnico_favorable_dep,
         concepto_sectorial_favorable_dep=concepto_sectorial_favorable_dep,
         proyecto_viable_dep=proyecto_viable_dep,

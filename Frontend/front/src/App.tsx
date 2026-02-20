@@ -182,7 +182,7 @@ function getYears(anio_inicio?: number | null): number[] {
 /* ---------- Lista ---------- */
 type ProyectoListaItemFlex = Record<string, any> & { nombre?: string; nombre_proyecto?: string; cod_id_mga?: number; id_dependencia?: number; dependencia_id?: number };
 type RolApp = "dependencia" | "radicador" | "evaluador";
-type DocEvaluador = "observaciones" | "viabilidad";
+type DocEvaluador = "observaciones" | "viabilidad" | "viabilidad_ajustada";
 
 interface ProyectoEvaluador {
   id: number | null;
@@ -202,6 +202,19 @@ interface ObservacionEvaluacionItem {
   concepto_sectorial_favorable_dep?: "SI" | "NO" | null;
   proyecto_viable_dep?: "SI" | "NO" | null;
   created_at: string;
+}
+
+interface IndicadorObjetivoItem {
+  indicador_objetivo_general: string;
+  unidad_medida: string;
+  meta_resultado: string;
+}
+
+interface MedicionAjustadaItem {
+  descripcion: string;
+  unidad_medida: string;
+  meta_programada: string;
+  meta_alcanzada: string;
 }
 
 type SiNo = "" | "SI" | "NO";
@@ -254,9 +267,19 @@ export default function App() {
   const [contenidoEvaluador, setContenidoEvaluador] = useState("");
   const [nombreEvaluador, setNombreEvaluador] = useState("");
   const [cargoEvaluador, setCargoEvaluador] = useState("");
+  const [fechaEvaluador, setFechaEvaluador] = useState(todayISODate());
   const [conceptoTecnicoDep, setConceptoTecnicoDep] = useState<SiNo>("");
   const [conceptoSectorialDep, setConceptoSectorialDep] = useState<SiNo>("");
   const [proyectoViableDep, setProyectoViableDep] = useState<SiNo>("");
+  const [indicadoresObjetivo, setIndicadoresObjetivo] = useState<IndicadorObjetivoItem[]>([
+    { indicador_objetivo_general: "", unidad_medida: "", meta_resultado: "" },
+  ]);
+  const [productosAjustados, setProductosAjustados] = useState<MedicionAjustadaItem[]>([
+    { descripcion: "", unidad_medida: "", meta_programada: "", meta_alcanzada: "" },
+  ]);
+  const [resultadosAjustados, setResultadosAjustados] = useState<MedicionAjustadaItem[]>([
+    { descripcion: "", unidad_medida: "", meta_programada: "", meta_alcanzada: "" },
+  ]);
   const editorRef = useRef<HTMLDivElement | null>(null);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
   const selectedImageRef = useRef<HTMLImageElement | null>(null);
@@ -905,6 +928,9 @@ export default function App() {
     if (tipo === "viabilidad") {
       return "<p><strong>MOTIVACION DE LA VIABILIDAD:</strong></p><p><br></p>";
     }
+    if (tipo === "viabilidad_ajustada") {
+      return "<p><strong>MOTIVACION DE LA VIABILIDAD AJUSTADA:</strong></p><p><br></p>";
+    }
     return "<p><strong>EVALUANDO EL PROYECTO, SE HACEN LAS SIGUIENTES OBSERVACIONES:</strong></p><p><br></p>";
   }
 
@@ -968,9 +994,13 @@ export default function App() {
     setContenidoEvaluador(baseContent);
     setNombreEvaluador("");
     setCargoEvaluador("");
+    setFechaEvaluador(todayISODate());
     setConceptoTecnicoDep("");
     setConceptoSectorialDep("");
     setProyectoViableDep("");
+    setIndicadoresObjetivo([{ indicador_objetivo_general: "", unidad_medida: "", meta_resultado: "" }]);
+    setProductosAjustados([{ descripcion: "", unidad_medida: "", meta_programada: "", meta_alcanzada: "" }]);
+    setResultadosAjustados([{ descripcion: "", unidad_medida: "", meta_programada: "", meta_alcanzada: "" }]);
     setSelectedEditorImage(null);
     setVista("evaluador_doc");
     setTimeout(() => {
@@ -982,15 +1012,24 @@ export default function App() {
       const res = await fetch(`${API_BASE_DEFAULT}/proyecto/formulario/${rowId}/observaciones`);
       if (!res.ok) return;
       const data: ObservacionEvaluacionItem[] = await res.json();
-      const tipoDb = tipo === "viabilidad" ? "VIABILIDAD" : "OBSERVACIONES";
+      const tipoDb =
+        tipo === "viabilidad"
+          ? "VIABILIDAD"
+          : tipo === "viabilidad_ajustada"
+            ? "VIABILIDAD_AJUSTADA"
+            : "OBSERVACIONES";
       const ultimo = data.find((x) => x.tipo_documento === tipoDb);
       if (!ultimo) return;
       setContenidoEvaluador(ultimo.contenido_html || baseContent);
       setNombreEvaluador(ultimo.nombre_evaluador || "");
       setCargoEvaluador(String(ultimo.cargo_evaluador || ""));
+      setFechaEvaluador(todayISODate());
       setConceptoTecnicoDep((ultimo.concepto_tecnico_favorable_dep as SiNo) || "");
       setConceptoSectorialDep((ultimo.concepto_sectorial_favorable_dep as SiNo) || "");
       setProyectoViableDep((ultimo.proyecto_viable_dep as SiNo) || "");
+      setIndicadoresObjetivo([{ indicador_objetivo_general: "", unidad_medida: "", meta_resultado: "" }]);
+      setProductosAjustados([{ descripcion: "", unidad_medida: "", meta_programada: "", meta_alcanzada: "" }]);
+      setResultadosAjustados([{ descripcion: "", unidad_medida: "", meta_programada: "", meta_alcanzada: "" }]);
       setTimeout(() => {
         if (editorRef.current) editorRef.current.innerHTML = ultimo.contenido_html || baseContent;
       }, 0);
@@ -1120,7 +1159,10 @@ export default function App() {
     return (tmp.textContent || "").trim().length > 0 || tmp.querySelector("img") != null;
   }
 
-  async function guardarRegistroEvaluador(tipo: "OBSERVACIONES" | "VIABILIDAD", html: string) {
+  async function guardarRegistroEvaluador(
+    tipo: "OBSERVACIONES" | "VIABILIDAD" | "VIABILIDAD_AJUSTADA",
+    html: string
+  ) {
     const formId = proyectoEvaluador?.id;
     if (!formId) {
       throw new Error("No se encontro un formulario valido para guardar la observacion.");
@@ -1133,9 +1175,9 @@ export default function App() {
         contenido_html: html,
         nombre_evaluador: nombreEvaluador.trim(),
         cargo_evaluador: cargoEvaluador.trim(),
-        concepto_tecnico_favorable_dep: tipo === "VIABILIDAD" ? (conceptoTecnicoDep || null) : null,
-        concepto_sectorial_favorable_dep: tipo === "VIABILIDAD" ? (conceptoSectorialDep || null) : null,
-        proyecto_viable_dep: tipo === "VIABILIDAD" ? (proyectoViableDep || null) : null,
+        concepto_tecnico_favorable_dep: tipo !== "OBSERVACIONES" ? (conceptoTecnicoDep || null) : null,
+        concepto_sectorial_favorable_dep: tipo !== "OBSERVACIONES" ? (conceptoSectorialDep || null) : null,
+        proyecto_viable_dep: tipo !== "OBSERVACIONES" ? (proyectoViableDep || null) : null,
       }),
     });
     if (!res.ok) {
@@ -1159,9 +1201,18 @@ export default function App() {
       alert("Ingresa el cargo del evaluador.");
       return;
     }
+    if (!fechaEvaluador) {
+      alert("Selecciona la fecha del evaluador.");
+      return;
+    }
 
-    const tipoDoc = docEvaluador === "viabilidad" ? "VIABILIDAD" : "OBSERVACIONES";
-    if (tipoDoc === "VIABILIDAD") {
+    const tipoDoc =
+      docEvaluador === "viabilidad"
+        ? "VIABILIDAD"
+        : docEvaluador === "viabilidad_ajustada"
+          ? "VIABILIDAD_AJUSTADA"
+          : "OBSERVACIONES";
+    if (tipoDoc !== "OBSERVACIONES") {
       if (!conceptoTecnicoDep || !conceptoSectorialDep || !proyectoViableDep) {
         alert("Completa los checks del Analisis de viabilidad.");
         return;
@@ -1179,7 +1230,12 @@ export default function App() {
       alert("No se encontro el ID del proyecto para generar el documento.");
       return;
     }
-    const docKey = docEvaluador === "viabilidad" ? "viabilidad" : "observaciones";
+    const docKey =
+      docEvaluador === "viabilidad"
+        ? "viabilidad"
+        : docEvaluador === "viabilidad_ajustada"
+          ? "viabilidad-ajustada"
+          : "observaciones";
     const res = await fetch(`${API_BASE_DEFAULT}/descarga/evaluador/pdf/${docKey}/${formId}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -1187,9 +1243,33 @@ export default function App() {
         contenido_html: html,
         nombre_evaluador: nombreEvaluador.trim(),
         cargo_evaluador: cargoEvaluador.trim(),
-        concepto_tecnico_favorable_dep: tipoDoc === "VIABILIDAD" ? (conceptoTecnicoDep || null) : null,
-        concepto_sectorial_favorable_dep: tipoDoc === "VIABILIDAD" ? (conceptoSectorialDep || null) : null,
-        proyecto_viable_dep: tipoDoc === "VIABILIDAD" ? (proyectoViableDep || null) : null,
+        fecha_evaluador: fechaEvaluador,
+        indicadores_objetivo: indicadoresObjetivo
+          .map((x) => ({
+            indicador_objetivo_general: (x.indicador_objetivo_general || "").trim(),
+            unidad_medida: (x.unidad_medida || "").trim(),
+            meta_resultado: (x.meta_resultado || "").trim(),
+          }))
+          .filter((x) => x.indicador_objetivo_general || x.unidad_medida || x.meta_resultado),
+        productos_ajustados: productosAjustados
+          .map((x) => ({
+            descripcion: (x.descripcion || "").trim(),
+            unidad_medida: (x.unidad_medida || "").trim(),
+            meta_programada: (x.meta_programada || "").trim(),
+            meta_alcanzada: (x.meta_alcanzada || "").trim(),
+          }))
+          .filter((x) => x.descripcion || x.unidad_medida || x.meta_programada || x.meta_alcanzada),
+        resultados_ajustados: resultadosAjustados
+          .map((x) => ({
+            descripcion: (x.descripcion || "").trim(),
+            unidad_medida: (x.unidad_medida || "").trim(),
+            meta_programada: (x.meta_programada || "").trim(),
+            meta_alcanzada: (x.meta_alcanzada || "").trim(),
+          }))
+          .filter((x) => x.descripcion || x.unidad_medida || x.meta_programada || x.meta_alcanzada),
+        concepto_tecnico_favorable_dep: tipoDoc !== "OBSERVACIONES" ? (conceptoTecnicoDep || null) : null,
+        concepto_sectorial_favorable_dep: tipoDoc !== "OBSERVACIONES" ? (conceptoSectorialDep || null) : null,
+        proyecto_viable_dep: tipoDoc !== "OBSERVACIONES" ? (proyectoViableDep || null) : null,
       }),
     });
     if (!res.ok) {
@@ -1201,7 +1281,12 @@ export default function App() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = docKey === "viabilidad" ? "viabilidad.pdf" : "observaciones.pdf";
+    a.download =
+      docKey === "viabilidad"
+        ? "viabilidad.pdf"
+        : docKey === "viabilidad-ajustada"
+          ? "viabilidad_ajustada.pdf"
+          : "observaciones.pdf";
     document.body.appendChild(a);
     a.click();
     a.remove();
@@ -1457,6 +1542,12 @@ export default function App() {
                               >
                                 Viabilidad
                               </Button>
+                              <Button
+                                size="sm"
+                                onClick={() => { void openEvaluadorDoc(p, "viabilidad_ajustada"); }}
+                              >
+                                Viabilidad ajustada
+                              </Button>
                             </div>
                           )}
                         </td>
@@ -1588,7 +1679,12 @@ export default function App() {
   }
 
   if (vista === "evaluador_doc") {
-    const tituloDoc = docEvaluador === "viabilidad" ? "Viabilidad" : "Observaciones";
+    const tituloDoc =
+      docEvaluador === "viabilidad"
+        ? "Viabilidad"
+        : docEvaluador === "viabilidad_ajustada"
+          ? "Viabilidad ajustada"
+          : "Observaciones";
     return (
       <div key="evaluador-doc-view" className="min-h-screen bg-gradient-to-b from-slate-50 to-white p-4 md:p-8">
         <div className="mx-auto max-w-6xl space-y-6">
@@ -1616,6 +1712,10 @@ export default function App() {
                 setContenidoEvaluador("");
                 setNombreEvaluador("");
                 setCargoEvaluador("");
+                setFechaEvaluador(todayISODate());
+                setIndicadoresObjetivo([{ indicador_objetivo_general: "", unidad_medida: "", meta_resultado: "" }]);
+                setProductosAjustados([{ descripcion: "", unidad_medida: "", meta_programada: "", meta_alcanzada: "" }]);
+                setResultadosAjustados([{ descripcion: "", unidad_medida: "", meta_programada: "", meta_alcanzada: "" }]);
                 setFNombre("");
                 setFCodMga("");
                 setFDependencia(null);
@@ -1627,7 +1727,7 @@ export default function App() {
 
           <Card className="shadow-sm">
             <CardContent className="p-4 space-y-4">
-              {docEvaluador === "viabilidad" && (
+              {(docEvaluador === "viabilidad" || docEvaluador === "viabilidad_ajustada") && (
                 <div className="rounded-xl border p-3 space-y-3 bg-slate-50">
                   <h3 className="font-semibold text-sm">Analisis de viabilidad (Departamento)</h3>
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
@@ -1666,6 +1766,261 @@ export default function App() {
                         <option value="SI">SI</option>
                         <option value="NO">NO</option>
                       </select>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {docEvaluador === "viabilidad" && (
+                <div className="rounded-xl border p-3 space-y-3 bg-slate-50">
+                  <div className="flex items-center justify-between gap-3">
+                    <h3 className="font-semibold text-sm">Indicadores objetivo general</h3>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="gap-1"
+                      onClick={() =>
+                        setIndicadoresObjetivo((prev) => [
+                          ...prev,
+                          { indicador_objetivo_general: "", unidad_medida: "", meta_resultado: "" },
+                        ])
+                      }
+                    >
+                      <Plus className="h-4 w-4" /> Agregar item
+                    </Button>
+                  </div>
+                  <div className="space-y-3">
+                    {indicadoresObjetivo.map((item, idx) => (
+                      <div key={`ind-${idx}`} className="grid grid-cols-1 md:grid-cols-12 gap-2 items-end">
+                        <div className="md:col-span-5">
+                          <Label>Indicador objetivo general</Label>
+                          <Input
+                            value={item.indicador_objetivo_general}
+                            onChange={(e) =>
+                              setIndicadoresObjetivo((prev) =>
+                                prev.map((r, i) =>
+                                  i === idx ? { ...r, indicador_objetivo_general: e.target.value } : r
+                                )
+                              )
+                            }
+                          />
+                        </div>
+                        <div className="md:col-span-3">
+                          <Label>Unidad de medida</Label>
+                          <Input
+                            value={item.unidad_medida}
+                            onChange={(e) =>
+                              setIndicadoresObjetivo((prev) =>
+                                prev.map((r, i) => (i === idx ? { ...r, unidad_medida: e.target.value } : r))
+                              )
+                            }
+                          />
+                        </div>
+                        <div className="md:col-span-3">
+                          <Label>Meta de resultado</Label>
+                          <Input
+                            value={item.meta_resultado}
+                            onChange={(e) =>
+                              setIndicadoresObjetivo((prev) =>
+                                prev.map((r, i) => (i === idx ? { ...r, meta_resultado: e.target.value } : r))
+                              )
+                            }
+                          />
+                        </div>
+                        <div className="md:col-span-1">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="icon"
+                            onClick={() =>
+                              setIndicadoresObjetivo((prev) => {
+                                if (prev.length === 1) {
+                                  return [{ indicador_objetivo_general: "", unidad_medida: "", meta_resultado: "" }];
+                                }
+                                return prev.filter((_, i) => i !== idx);
+                              })
+                            }
+                            title="Eliminar item"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {docEvaluador === "viabilidad_ajustada" && (
+                <div className="rounded-xl border p-3 space-y-4 bg-slate-50">
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between gap-3">
+                      <h3 className="font-semibold text-sm">Productos</h3>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="gap-1"
+                        onClick={() =>
+                          setProductosAjustados((prev) => [
+                            ...prev,
+                            { descripcion: "", unidad_medida: "", meta_programada: "", meta_alcanzada: "" },
+                          ])
+                        }
+                      >
+                        <Plus className="h-4 w-4" /> Agregar item
+                      </Button>
+                    </div>
+                    <div className="space-y-3">
+                      {productosAjustados.map((item, idx) => (
+                        <div key={`prod-aj-${idx}`} className="grid grid-cols-1 md:grid-cols-12 gap-2 items-end">
+                          <div className="md:col-span-4">
+                            <Label>Descripcion</Label>
+                            <Input
+                              value={item.descripcion}
+                              onChange={(e) =>
+                                setProductosAjustados((prev) =>
+                                  prev.map((r, i) => (i === idx ? { ...r, descripcion: e.target.value } : r))
+                                )
+                              }
+                            />
+                          </div>
+                          <div className="md:col-span-3">
+                            <Label>Unidad de medida</Label>
+                            <Input
+                              value={item.unidad_medida}
+                              onChange={(e) =>
+                                setProductosAjustados((prev) =>
+                                  prev.map((r, i) => (i === idx ? { ...r, unidad_medida: e.target.value } : r))
+                                )
+                              }
+                            />
+                          </div>
+                          <div className="md:col-span-2">
+                            <Label>Meta programada</Label>
+                            <Input
+                              value={item.meta_programada}
+                              onChange={(e) =>
+                                setProductosAjustados((prev) =>
+                                  prev.map((r, i) => (i === idx ? { ...r, meta_programada: e.target.value } : r))
+                                )
+                              }
+                            />
+                          </div>
+                          <div className="md:col-span-2">
+                            <Label>Meta alcanzada</Label>
+                            <Input
+                              value={item.meta_alcanzada}
+                              onChange={(e) =>
+                                setProductosAjustados((prev) =>
+                                  prev.map((r, i) => (i === idx ? { ...r, meta_alcanzada: e.target.value } : r))
+                                )
+                              }
+                            />
+                          </div>
+                          <div className="md:col-span-1">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="icon"
+                              onClick={() =>
+                                setProductosAjustados((prev) => {
+                                  if (prev.length === 1) return [{ descripcion: "", unidad_medida: "", meta_programada: "", meta_alcanzada: "" }];
+                                  return prev.filter((_, i) => i !== idx);
+                                })
+                              }
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between gap-3">
+                      <h3 className="font-semibold text-sm">Resultados</h3>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="gap-1"
+                        onClick={() =>
+                          setResultadosAjustados((prev) => [
+                            ...prev,
+                            { descripcion: "", unidad_medida: "", meta_programada: "", meta_alcanzada: "" },
+                          ])
+                        }
+                      >
+                        <Plus className="h-4 w-4" /> Agregar item
+                      </Button>
+                    </div>
+                    <div className="space-y-3">
+                      {resultadosAjustados.map((item, idx) => (
+                        <div key={`res-aj-${idx}`} className="grid grid-cols-1 md:grid-cols-12 gap-2 items-end">
+                          <div className="md:col-span-4">
+                            <Label>Descripcion</Label>
+                            <Input
+                              value={item.descripcion}
+                              onChange={(e) =>
+                                setResultadosAjustados((prev) =>
+                                  prev.map((r, i) => (i === idx ? { ...r, descripcion: e.target.value } : r))
+                                )
+                              }
+                            />
+                          </div>
+                          <div className="md:col-span-3">
+                            <Label>Unidad de medida</Label>
+                            <Input
+                              value={item.unidad_medida}
+                              onChange={(e) =>
+                                setResultadosAjustados((prev) =>
+                                  prev.map((r, i) => (i === idx ? { ...r, unidad_medida: e.target.value } : r))
+                                )
+                              }
+                            />
+                          </div>
+                          <div className="md:col-span-2">
+                            <Label>Meta programada</Label>
+                            <Input
+                              value={item.meta_programada}
+                              onChange={(e) =>
+                                setResultadosAjustados((prev) =>
+                                  prev.map((r, i) => (i === idx ? { ...r, meta_programada: e.target.value } : r))
+                                )
+                              }
+                            />
+                          </div>
+                          <div className="md:col-span-2">
+                            <Label>Meta alcanzada</Label>
+                            <Input
+                              value={item.meta_alcanzada}
+                              onChange={(e) =>
+                                setResultadosAjustados((prev) =>
+                                  prev.map((r, i) => (i === idx ? { ...r, meta_alcanzada: e.target.value } : r))
+                                )
+                              }
+                            />
+                          </div>
+                          <div className="md:col-span-1">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="icon"
+                              onClick={() =>
+                                setResultadosAjustados((prev) => {
+                                  if (prev.length === 1) return [{ descripcion: "", unidad_medida: "", meta_programada: "", meta_alcanzada: "" }];
+                                  return prev.filter((_, i) => i !== idx);
+                                })
+                              }
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        </div>
+                      ))}
                     </div>
                   </div>
                 </div>
@@ -1715,7 +2070,7 @@ export default function App() {
           </Card>
 
           <Card className="shadow-sm">
-            <CardContent className="p-4 grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
+            <CardContent className="p-4 grid grid-cols-1 md:grid-cols-5 gap-3 items-end">
               <div className="md:col-span-2">
                 <Label>Nombre del evaluador</Label>
                 <Input
@@ -1730,6 +2085,14 @@ export default function App() {
                   value={cargoEvaluador}
                   onChange={(e) => setCargoEvaluador(e.target.value)}
                   placeholder="Cargo"
+                />
+              </div>
+              <div>
+                <Label>Fecha del evaluador</Label>
+                <Input
+                  type="date"
+                  value={fechaEvaluador}
+                  onChange={(e) => setFechaEvaluador(e.target.value)}
                 />
               </div>
               <Button onClick={descargarPdfEvaluador}>Descargar PDF</Button>

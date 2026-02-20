@@ -225,7 +225,7 @@ CREATE TABLE periodo_lema (
 CREATE TABLE observacion_evaluacion (
     id SERIAL PRIMARY KEY,
     id_formulario INT NOT NULL REFERENCES formulario(id) ON DELETE CASCADE,
-    tipo_documento TEXT NOT NULL CHECK (tipo_documento IN ('OBSERVACIONES', 'VIABILIDAD')),
+    tipo_documento TEXT NOT NULL CHECK (tipo_documento IN ('OBSERVACIONES', 'VIABILIDAD', 'VIABILIDAD_AJUSTADA')),
     contenido_html TEXT NOT NULL,
     nombre_evaluador TEXT NOT NULL,
     cargo_evaluador TEXT,

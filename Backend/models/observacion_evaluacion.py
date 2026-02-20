@@ -9,7 +9,7 @@ class ObservacionEvaluacion(Base):
 
     id = Column(Integer, primary_key=True)
     id_formulario = Column(Integer, ForeignKey("formulario.id", ondelete="CASCADE"), nullable=False, index=True)
-    tipo_documento = Column(Text, nullable=False)  # OBSERVACIONES | VIABILIDAD
+    tipo_documento = Column(Text, nullable=False)  # OBSERVACIONES | VIABILIDAD | VIABILIDAD_AJUSTADA
     contenido_html = Column(Text, nullable=False)
     nombre_evaluador = Column(Text, nullable=False)
     cargo_evaluador = Column(Text, nullable=True)

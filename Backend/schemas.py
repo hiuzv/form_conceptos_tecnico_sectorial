@@ -225,7 +225,7 @@ class FormularioRadicacionUpsert(BaseModel):
 
 
 class ObservacionEvaluacionCreate(BaseModel):
-    tipo_documento: str  # OBSERVACIONES | VIABILIDAD
+    tipo_documento: str  # OBSERVACIONES | VIABILIDAD | VIABILIDAD_AJUSTADA
     contenido_html: str
     nombre_evaluador: str
     cargo_evaluador: Optional[str] = None
