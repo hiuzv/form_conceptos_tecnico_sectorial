@@ -870,7 +870,7 @@ def _inject_cargo_evaluador(template_html: str, cargo: str) -> str:
 
 
 def _logo_data_uri(base_dir: Path) -> str:
-    candidates = list(base_dir.glob("Logos-Gobern*horizontal.png"))
+    candidates = list(base_dir.glob("Logo-sec-planeacion.png"))
     if not candidates:
         return ""
     try:
