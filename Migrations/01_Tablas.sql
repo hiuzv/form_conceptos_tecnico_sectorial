@@ -1,5 +1,6 @@
 -- DROP ALL
 DROP TABLE periodo_lema;
+DROP TABLE observacion_evaluacion_indicador;
 DROP TABLE observacion_evaluacion;
 DROP TABLE funcionario_viabilidad;
 DROP TABLE tipo_viabilidad;
@@ -84,6 +85,7 @@ CREATE TABLE meta (
     nombre_meta TEXT NOT NULL,
     codigo_producto INT NOT NULL,
     nombre_producto TEXT NOT NULL,
+    unidad_medida TEXT,
     codigo_indicador_producto INT NOT NULL,
     nombre_indicador_producto TEXT NOT NULL
 );
@@ -92,7 +94,8 @@ CREATE TABLE meta (
 CREATE TABLE metas (
     id SERIAL PRIMARY KEY,
     id_meta INT NOT NULL REFERENCES meta,
-    id_formulario INT NOT NULL REFERENCES formulario
+    id_formulario INT NOT NULL REFERENCES formulario,
+    meta_proyecto TEXT
 );
 
 -- Tabla: variable_sectorial 
@@ -240,3 +243,16 @@ CREATE INDEX IF NOT EXISTS ix_observacion_evaluacion_formulario
 
 CREATE INDEX IF NOT EXISTS ix_observacion_evaluacion_created_at
     ON observacion_evaluacion (created_at DESC);
+
+-- Tabla: observacion_evaluacion_indicador (versionada por observacion_evaluacion)
+CREATE TABLE observacion_evaluacion_indicador (
+    id SERIAL PRIMARY KEY,
+    id_observacion_evaluacion INT NOT NULL REFERENCES observacion_evaluacion(id) ON DELETE CASCADE,
+    orden INT NOT NULL DEFAULT 0,
+    indicador_objetivo_general TEXT NOT NULL DEFAULT '',
+    unidad_medida TEXT NOT NULL DEFAULT '',
+    meta_resultado TEXT NOT NULL DEFAULT ''
+);
+
+CREATE INDEX IF NOT EXISTS ix_obs_eval_indicador_obs
+    ON observacion_evaluacion_indicador (id_observacion_evaluacion, orden, id);

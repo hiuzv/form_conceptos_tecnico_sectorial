@@ -14,6 +14,28 @@ def get_db():
     finally:
         db.close()
 
+def _map_observacion_evaluacion(row) -> schemas.ObservacionEvaluacionRead:
+    return schemas.ObservacionEvaluacionRead(
+        id=row.id,
+        id_formulario=row.id_formulario,
+        tipo_documento=row.tipo_documento,
+        contenido_html=row.contenido_html,
+        nombre_evaluador=row.nombre_evaluador,
+        cargo_evaluador=row.cargo_evaluador,
+        indicadores_objetivo=[
+            schemas.IndicadorObjetivoEvaluacionIn(
+                indicador_objetivo_general=getattr(it, "indicador_objetivo_general", "") or "",
+                unidad_medida=getattr(it, "unidad_medida", "") or "",
+                meta_resultado=getattr(it, "meta_resultado", "") or "",
+            )
+            for it in (getattr(row, "indicadores_objetivo", None) or [])
+        ],
+        concepto_tecnico_favorable_dep=row.concepto_tecnico_favorable_dep,
+        concepto_sectorial_favorable_dep=row.concepto_sectorial_favorable_dep,
+        proyecto_viable_dep=row.proyecto_viable_dep,
+        created_at=row.created_at,
+    )
+
 @router.get("/lineas", response_model=List[schemas.LineaRead])
 def lineas(db: Session = Depends(get_db)):
     return [
@@ -44,6 +66,7 @@ def metas(programa_id: int = Query(..., ge=1), db: Session = Depends(get_db)):
             nombre_meta=r.nombre_meta,
             codigo_producto=r.codigo_producto,
             nombre_producto=r.nombre_producto,
+            unidad_medida=getattr(r, "unidad_medida", None),
             codigo_indicador_producto=r.codigo_indicador_producto,
             nombre_indicador_producto=r.nombre_indicador_producto,
         )
@@ -109,7 +132,7 @@ def crear_formulario(payload: schemas.FormularioCreate, db: Session = Depends(ge
         proyecto_service.asignar_estructura_financiera(db, form.id, payload.estructura_financiera)
 
     form_db = proyecto_service.obtener_formulario(db, form.id)
-    metas_db = proyecto_service.listar_metas_por_formulario(db, form.id)
+    metas_db = proyecto_service.listar_metas_por_formulario_con_detalle(db, form.id)
     vars_sectorial_db = proyecto_service.listar_variables_sectorial_por_formulario(db, form.id)
     vars_tecnico_db   = proyecto_service.listar_variables_tecnico_por_formulario(db, form.id)
     pols_db = proyecto_service.listar_politicas_por_formulario(db, form.id)
@@ -142,9 +165,11 @@ def crear_formulario(payload: schemas.FormularioCreate, db: Session = Depends(ge
             nombre_meta=m.nombre_meta,
             codigo_producto=m.codigo_producto,
             nombre_producto=m.nombre_producto,
+            unidad_medida=getattr(m, "unidad_medida", None),
             codigo_indicador_producto=m.codigo_indicador_producto,
             nombre_indicador_producto=m.nombre_indicador_producto,
-        ) for m in metas_db],
+            meta_proyecto=meta_proyecto,
+        ) for (m, meta_proyecto) in metas_db],
         variables_sectorial=[schemas.VariableSectorialRead(id=v.id, nombre_variable=v.nombre_variable) for v in vars_sectorial_db],
         variables_tecnico=[schemas.VariableTecnicoRead(id=v.id, nombre_variable=v.nombre_variable) for v in vars_tecnico_db],
         politicas = [schemas.PoliticaRead(id=p.id, nombre_politica=p.nombre_politica, valor_destinado=valor)
@@ -160,7 +185,7 @@ def obtener_formulario(form_id: int, db: Session = Depends(get_db)):
     form_db = proyecto_service.obtener_formulario(db, form_id)
     if not form_db:
         raise HTTPException(status_code=404, detail="Formulario no encontrado")
-    metas_db            = proyecto_service.listar_metas_por_formulario(db, form_id)
+    metas_db            = proyecto_service.listar_metas_por_formulario_con_detalle(db, form_id)
     vars_sectorial_db   = proyecto_service.listar_variables_sectorial_por_formulario(db, form_id)
     vars_tecnico_db     = proyecto_service.listar_variables_tecnico_por_formulario(db, form_id)
     pols_db             = proyecto_service.listar_politicas_por_formulario(db, form_id)
@@ -195,9 +220,11 @@ def obtener_formulario(form_id: int, db: Session = Depends(get_db)):
             nombre_meta=m.nombre_meta,
             codigo_producto=m.codigo_producto,
             nombre_producto=m.nombre_producto,
+            unidad_medida=getattr(m, "unidad_medida", None),
             codigo_indicador_producto=m.codigo_indicador_producto,
             nombre_indicador_producto=m.nombre_indicador_producto,
-        ) for m in metas_db] or [],
+            meta_proyecto=meta_proyecto,
+        ) for (m, meta_proyecto) in metas_db] or [],
         variables_sectorial=[schemas.VariableSectorialRead(id=v.id, nombre_variable=v.nombre_variable) for v in vars_sectorial_db] or [],
         variables_tecnico=[schemas.VariableTecnicoRead(id=v.id, nombre_variable=v.nombre_variable) for v in vars_tecnico_db] or [],
         politicas=[schemas.PoliticaRead(id=p.id, nombre_politica=p.nombre_politica, valor_destinado=valor) for (p, valor) in pols_db] or [],
@@ -229,8 +256,8 @@ def upsert_radicacion(form_id:int, payload: schemas.FormularioRadicacionUpsert, 
     return obtener_formulario(form_id, db)
 
 @router.put("/formulario/{form_id}/metas", response_model=schemas.FormularioRead)
-def upsert_metas(form_id:int, body: schemas.IdsIn, db: Session = Depends(get_db)):
-    proyecto_service.replace_metas(db, form_id, body.ids or [])
+def upsert_metas(form_id:int, body: schemas.MetasFormularioUpsertIn, db: Session = Depends(get_db)):
+    proyecto_service.replace_metas_detalle(db, form_id, [m.model_dump() for m in (body.metas or [])])
     return obtener_formulario(form_id, db)
 
 @router.put("/formulario/{form_id}/estructura-financiera", response_model=schemas.FormularioRead)
@@ -363,11 +390,14 @@ def crear_observacion(form_id: int, body: schemas.ObservacionEvaluacionCreate, d
             contenido_html=body.contenido_html,
             nombre_evaluador=body.nombre_evaluador,
             cargo_evaluador=body.cargo_evaluador,
+            indicadores_objetivo=[x.model_dump() for x in (body.indicadores_objetivo or [])],
             concepto_tecnico_favorable_dep=body.concepto_tecnico_favorable_dep,
             concepto_sectorial_favorable_dep=body.concepto_sectorial_favorable_dep,
             proyecto_viable_dep=body.proyecto_viable_dep,
         )
-        return row
+        rows = proyecto_service.listar_observaciones_evaluacion(db, form_id)
+        created = next((x for x in rows if x.id == row.id), row)
+        return _map_observacion_evaluacion(created)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -377,4 +407,4 @@ def listar_observaciones(form_id: int, db: Session = Depends(get_db)):
     form = proyecto_service.obtener_formulario(db, form_id)
     if not form:
         raise HTTPException(status_code=404, detail="Formulario no encontrado")
-    return proyecto_service.listar_observaciones_evaluacion(db, form_id)
+    return [_map_observacion_evaluacion(r) for r in proyecto_service.listar_observaciones_evaluacion(db, form_id)]

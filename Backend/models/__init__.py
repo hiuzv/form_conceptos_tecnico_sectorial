@@ -23,3 +23,4 @@ from .tipo_viabilidad import TipoViabilidad
 from .funcionario_viabilidad import FuncionarioViabilidad
 from .periodo_lema import PeriodoLema
 from .observacion_evaluacion import ObservacionEvaluacion
+from .observacion_evaluacion_indicador import ObservacionEvaluacionIndicador

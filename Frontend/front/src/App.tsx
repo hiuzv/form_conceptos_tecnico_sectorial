@@ -194,10 +194,11 @@ interface ProyectoEvaluador {
 interface ObservacionEvaluacionItem {
   id: number;
   id_formulario: number;
-  tipo_documento: "OBSERVACIONES" | "VIABILIDAD";
+  tipo_documento: "OBSERVACIONES" | "VIABILIDAD" | "VIABILIDAD_AJUSTADA";
   contenido_html: string;
   nombre_evaluador: string;
   cargo_evaluador?: string | null;
+  indicadores_objetivo?: IndicadorObjetivoItem[];
   concepto_tecnico_favorable_dep?: "SI" | "NO" | null;
   concepto_sectorial_favorable_dep?: "SI" | "NO" | null;
   proyecto_viable_dep?: "SI" | "NO" | null;
@@ -208,6 +209,12 @@ interface IndicadorObjetivoItem {
   indicador_objetivo_general: string;
   unidad_medida: string;
   meta_resultado: string;
+}
+
+interface MetaPddEvaluadorItem {
+  id: number;
+  numero_meta: number | string;
+  nombre_meta: string;
 }
 
 interface MedicionAjustadaItem {
@@ -280,6 +287,9 @@ export default function App() {
   const [resultadosAjustados, setResultadosAjustados] = useState<MedicionAjustadaItem[]>([
     { descripcion: "", unidad_medida: "", meta_programada: "", meta_alcanzada: "" },
   ]);
+  const [metasProyectoById, setMetasProyectoById] = useState<Record<number, string>>({});
+  const [metasPddEvaluador, setMetasPddEvaluador] = useState<MetaPddEvaluadorItem[]>([]);
+  const [editorFontSizePx, setEditorFontSizePx] = useState("14");
   const editorRef = useRef<HTMLDivElement | null>(null);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
   const selectedImageRef = useRef<HTMLImageElement | null>(null);
@@ -666,9 +676,13 @@ export default function App() {
       });
     }
     if (which === 2) {
+      const metasPayload = (payload.metas || []).map((id_meta) => ({
+        id_meta,
+        meta_proyecto: (metasProyectoById[id_meta] || "").trim() || null,
+      }));
       await fetch(`${API_BASE_DEFAULT}/proyecto/formulario/${id}/metas`, {
         method:"PUT", headers:{"Content-Type":"application/json"},
-        body: JSON.stringify({ ids: payload.metas }),
+        body: JSON.stringify({ metas: metasPayload }),
       });
     }
     if (which === 3) {
@@ -814,6 +828,11 @@ export default function App() {
       const metasSel = (Array.isArray(r.metas) ? r.metas : []).map((m: any) =>
         Number(m.id ?? m.id_meta ?? m.meta_id ?? m.codigo)
       ).filter(Number.isFinite);
+      const metasProyectoMap = Object.fromEntries(
+        (Array.isArray(r.metas) ? r.metas : [])
+          .map((m: any) => [Number(m.id ?? m.id_meta ?? m.meta_id), String(m.meta_proyecto ?? "")])
+          .filter(([id]) => Number.isFinite(id))
+      ) as Record<number, string>;
       const varsSecSel = (r.variables_sectorial || r.variables_sectoriales || []).map((v: any) =>
         Number(v.id ?? v.id_variable ?? v.variable_id)
       ).filter(Number.isFinite);
@@ -885,6 +904,7 @@ export default function App() {
           }];
       setViabilidadesSel(viaSel);
       setFuncionariosViab(funcs);
+      setMetasProyectoById(metasProyectoMap);
       setDatos(prev => ({
         ...prev,
         datos_basicos: {
@@ -1001,6 +1021,8 @@ export default function App() {
     setIndicadoresObjetivo([{ indicador_objetivo_general: "", unidad_medida: "", meta_resultado: "" }]);
     setProductosAjustados([{ descripcion: "", unidad_medida: "", meta_programada: "", meta_alcanzada: "" }]);
     setResultadosAjustados([{ descripcion: "", unidad_medida: "", meta_programada: "", meta_alcanzada: "" }]);
+    setMetasProyectoById({});
+    setMetasPddEvaluador([]);
     setSelectedEditorImage(null);
     setVista("evaluador_doc");
     setTimeout(() => {
@@ -1009,6 +1031,28 @@ export default function App() {
 
     if (!rowId) return;
     try {
+      try {
+        const form = await fetchJson(`/proyecto/formulario/${rowId}`);
+        const metasForm = Array.isArray(form?.metas) ? form.metas : [];
+        setMetasPddEvaluador(
+          metasForm.map((m: any) => ({
+            id: Number(m.id ?? m.id_meta ?? m.meta_id ?? 0),
+            numero_meta: m.numero_meta ?? m.codigo ?? "",
+            nombre_meta: String(m.nombre_meta ?? m.nombre ?? ""),
+          })).filter((m: MetaPddEvaluadorItem) => Number.isFinite(m.id) && m.id > 0)
+        );
+        setMetasProyectoById(
+          Object.fromEntries(
+            metasForm.map((m: any) => [
+              Number(m.id ?? m.id_meta ?? m.meta_id ?? 0),
+              String(m.meta_proyecto ?? ""),
+            ]).filter(([id]: [number, string]) => Number.isFinite(id) && id > 0)
+          ) as Record<number, string>
+        );
+      } catch {
+        // Si falla esta carga, igual permitimos abrir el documento.
+      }
+
       const res = await fetch(`${API_BASE_DEFAULT}/proyecto/formulario/${rowId}/observaciones`);
       if (!res.ok) return;
       const data: ObservacionEvaluacionItem[] = await res.json();
@@ -1027,7 +1071,20 @@ export default function App() {
       setConceptoTecnicoDep((ultimo.concepto_tecnico_favorable_dep as SiNo) || "");
       setConceptoSectorialDep((ultimo.concepto_sectorial_favorable_dep as SiNo) || "");
       setProyectoViableDep((ultimo.proyecto_viable_dep as SiNo) || "");
-      setIndicadoresObjetivo([{ indicador_objetivo_general: "", unidad_medida: "", meta_resultado: "" }]);
+      const indicadoresGuardados = Array.isArray(ultimo.indicadores_objetivo)
+        ? ultimo.indicadores_objetivo
+            .map((x) => ({
+              indicador_objetivo_general: String(x?.indicador_objetivo_general ?? ""),
+              unidad_medida: String(x?.unidad_medida ?? ""),
+              meta_resultado: String(x?.meta_resultado ?? ""),
+            }))
+            .filter((x) => x.indicador_objetivo_general || x.unidad_medida || x.meta_resultado)
+        : [];
+      setIndicadoresObjetivo(
+        tipo === "viabilidad" && indicadoresGuardados.length
+          ? indicadoresGuardados
+          : [{ indicador_objetivo_general: "", unidad_medida: "", meta_resultado: "" }]
+      );
       setProductosAjustados([{ descripcion: "", unidad_medida: "", meta_programada: "", meta_alcanzada: "" }]);
       setResultadosAjustados([{ descripcion: "", unidad_medida: "", meta_programada: "", meta_alcanzada: "" }]);
       setTimeout(() => {
@@ -1130,6 +1187,31 @@ export default function App() {
     setContenidoEvaluador(editorRef.current.innerHTML);
   }
 
+  function applyEditorFontSize(px: string) {
+    if (!editorRef.current) return;
+    setEditorFontSizePx(px);
+    editorRef.current.focus();
+    document.execCommand("styleWithCSS", false, true);
+    document.execCommand("fontSize", false, "7");
+    editorRef.current.querySelectorAll('font[size="7"]').forEach((node) => {
+      const span = document.createElement("span");
+      span.style.fontSize = `${px}px`;
+      span.innerHTML = node.innerHTML;
+      node.replaceWith(span);
+    });
+    setContenidoEvaluador(editorRef.current.innerHTML);
+  }
+
+  function applyBulletList() {
+    applyEditorCommand("insertUnorderedList");
+    if (!editorRef.current) return;
+    editorRef.current.querySelectorAll("ul").forEach((ul) => {
+      (ul as HTMLUListElement).style.listStyleType = "disc";
+      (ul as HTMLUListElement).style.paddingLeft = "1.5rem";
+    });
+    setContenidoEvaluador(editorRef.current.innerHTML);
+  }
+
   function onImageSelected(file?: File) {
     if (!file) return;
     const reader = new FileReader();
@@ -1167,6 +1249,23 @@ export default function App() {
     if (!formId) {
       throw new Error("No se encontro un formulario valido para guardar la observacion.");
     }
+
+    if (tipo === "VIABILIDAD" && metasPddEvaluador.length) {
+      const metasPayload = metasPddEvaluador.map((m) => ({
+        id_meta: m.id,
+        meta_proyecto: (metasProyectoById[m.id] || "").trim() || null,
+      }));
+      const metasRes = await fetch(`${API_BASE_DEFAULT}/proyecto/formulario/${formId}/metas`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ metas: metasPayload }),
+      });
+      if (!metasRes.ok) {
+        const err = await metasRes.text().catch(() => "");
+        throw new Error(err || "No se pudo guardar la meta del proyecto.");
+      }
+    }
+
     const res = await fetch(`${API_BASE_DEFAULT}/proyecto/formulario/${formId}/observaciones`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -1175,6 +1274,15 @@ export default function App() {
         contenido_html: html,
         nombre_evaluador: nombreEvaluador.trim(),
         cargo_evaluador: cargoEvaluador.trim(),
+        indicadores_objetivo: tipo === "VIABILIDAD"
+          ? indicadoresObjetivo
+              .map((x) => ({
+                indicador_objetivo_general: (x.indicador_objetivo_general || "").trim(),
+                unidad_medida: (x.unidad_medida || "").trim(),
+                meta_resultado: (x.meta_resultado || "").trim(),
+              }))
+              .filter((x) => x.indicador_objetivo_general || x.unidad_medida || x.meta_resultado)
+          : [],
         concepto_tecnico_favorable_dep: tipo !== "OBSERVACIONES" ? (conceptoTecnicoDep || null) : null,
         concepto_sectorial_favorable_dep: tipo !== "OBSERVACIONES" ? (conceptoSectorialDep || null) : null,
         proyecto_viable_dep: tipo !== "OBSERVACIONES" ? (proyectoViableDep || null) : null,
@@ -1348,6 +1456,7 @@ export default function App() {
       anio_inicio: undefined,
       estructura_financiera_ui: {},
     });
+    setMetasProyectoById({});
     setViabilidadesSel([]);
     setFuncionariosViab({});
     setStep(1);
@@ -1773,6 +1882,34 @@ export default function App() {
 
               {docEvaluador === "viabilidad" && (
                 <div className="rounded-xl border p-3 space-y-3 bg-slate-50">
+                  <div className="space-y-2">
+                    <h3 className="font-semibold text-sm">Metas PDD y Meta del proyecto</h3>
+                    <div className="space-y-2">
+                      {metasPddEvaluador.length ? metasPddEvaluador.map((m) => (
+                        <div key={`meta-eval-${m.id}`} className="grid grid-cols-1 md:grid-cols-12 gap-2 items-center rounded-lg border bg-white p-2">
+                          <div className="md:col-span-2 text-sm">
+                            <div className="text-xs text-slate-500">NÚMERO DE META PDD</div>
+                            <div>{m.numero_meta}</div>
+                          </div>
+                          <div className="md:col-span-5 text-sm">
+                            <div className="text-xs text-slate-500">META DEL CUATRENIO PDD</div>
+                            <div>{m.nombre_meta}</div>
+                          </div>
+                          <div className="md:col-span-5">
+                            <Label>Meta del proyecto</Label>
+                            <Input
+                              value={metasProyectoById[m.id] ?? ""}
+                              onChange={(e) => setMetasProyectoById((prev) => ({ ...prev, [m.id]: e.target.value }))}
+                              placeholder="Digite la meta del proyecto"
+                            />
+                          </div>
+                        </div>
+                      )) : (
+                        <div className="text-sm text-slate-500">No hay metas seleccionadas en el formulario.</div>
+                      )}
+                    </div>
+                  </div>
+
                   <div className="flex items-center justify-between gap-3">
                     <h3 className="font-semibold text-sm">Indicadores objetivo general</h3>
                     <Button
@@ -2030,7 +2167,21 @@ export default function App() {
                 <Button type="button" variant="outline" size="sm" onClick={() => applyEditorCommand("bold")}>Negrita</Button>
                 <Button type="button" variant="outline" size="sm" onClick={() => applyEditorCommand("italic")}>Cursiva</Button>
                 <Button type="button" variant="outline" size="sm" onClick={() => applyEditorCommand("underline")}>Subrayado</Button>
-                <Button type="button" variant="outline" size="sm" onClick={() => applyEditorCommand("insertUnorderedList")}>Lista</Button>
+                <select
+                  className="h-9 rounded-md border bg-white px-2 text-sm"
+                  value={editorFontSizePx}
+                  onChange={(e) => applyEditorFontSize(e.target.value)}
+                  title="Tamaño de letra"
+                >
+                  {["10","11","12","14","16","18","20","24","28"].map((s) => (
+                    <option key={`fs-${s}`} value={s}>{s}px</option>
+                  ))}
+                </select>
+                <Button type="button" variant="outline" size="sm" onClick={() => applyEditorCommand("justifyLeft")}>Izq</Button>
+                <Button type="button" variant="outline" size="sm" onClick={() => applyEditorCommand("justifyCenter")}>Centro</Button>
+                <Button type="button" variant="outline" size="sm" onClick={() => applyEditorCommand("justifyRight")}>Der</Button>
+                <Button type="button" variant="outline" size="sm" onClick={() => applyEditorCommand("justifyFull")}>Justificado</Button>
+                <Button type="button" variant="outline" size="sm" onClick={applyBulletList}>Lista •</Button>
                 <Button type="button" variant="outline" size="sm" onClick={() => resizeSelectedImage(0.85)}>Img -</Button>
                 <Button type="button" variant="outline" size="sm" onClick={() => resizeSelectedImage(1.15)}>Img +</Button>
                 <Button type="button" variant="outline" size="sm" onClick={fitSelectedImage}>Ajustar imagen</Button>
@@ -2055,7 +2206,7 @@ export default function App() {
                 ref={editorRef}
                 contentEditable
                 suppressContentEditableWarning
-                className="min-h-[420px] rounded-xl border bg-white p-4 outline-none focus:ring-2 focus:ring-slate-300 [&_img]:max-w-full [&_img]:h-auto"
+                className="min-h-[420px] rounded-xl border bg-white p-4 outline-none focus:ring-2 focus:ring-slate-300 [&_img]:max-w-full [&_img]:h-auto [&_ul]:list-disc [&_ul]:pl-6 [&_ul]:my-2 [&_ol]:list-decimal [&_ol]:pl-6 [&_ol]:my-2"
                 onInput={(e) => setContenidoEvaluador((e.target as HTMLDivElement).innerHTML)}
                 onClick={(e) => {
                   const target = e.target as HTMLElement;

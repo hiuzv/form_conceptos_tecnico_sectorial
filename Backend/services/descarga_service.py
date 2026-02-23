@@ -114,7 +114,7 @@ def _fetch_base_context(db: Session, form_id: int) -> dict:
         "cantidad_beneficiarios": getattr(form, "cantidad_beneficiarios", None),
     }
     metas = (
-        db.query(Meta)
+        db.query(Meta, Metas.meta_proyecto)
         .join(Metas, Metas.id_meta == Meta.id)
         .filter(Metas.id_formulario == form_id)
         .order_by(Meta.numero_meta)
@@ -124,12 +124,14 @@ def _fetch_base_context(db: Session, form_id: int) -> dict:
         {
             "numero": m.numero_meta,
             "nombre": m.nombre_meta,
+            "meta_proyecto": meta_proyecto,
             "codigo_producto": m.codigo_producto,
             "nombre_producto": m.nombre_producto,
+            "unidad_medida": getattr(m, "unidad_medida", None),
             "codigo_indicador_producto": m.codigo_indicador_producto,
             "nombre_indicador_producto": m.nombre_indicador_producto,
         }
-        for m in metas
+        for (m, meta_proyecto) in metas
     ]
     ef_rows = (
         db.query(EstructuraFinanciera)
@@ -870,12 +872,12 @@ def _inject_viabilidad_productos(template_html: str, metas: list[dict]) -> str:
             "<tr>"
             f"<td class=\"d\" style=\"width:140px\">{m.get('codigo_producto') or ''}</td>"
             f"<td class=\"d\" style=\"width:140px\">{m.get('nombre_producto') or ''}</td>"
-            f"<td class=\"d\" style=\"width:140px\">&nbsp;</td>"
+            f"<td class=\"d\" style=\"width:140px\">{m.get('unidad_medida') or ''}</td>"
             f"<td class=\"d\" style=\"width:140px\">{m.get('codigo_indicador_producto') or ''}</td>"
             f"<td class=\"d\" style=\"width:140px\">{m.get('nombre_indicador_producto') or ''}</td>"
-            f"<td class=\"d\" style=\"width:140px\">{m.get('nombre') or ''}</td>"
+            f"<td class=\"d\" style=\"width:140px\">{m.get('meta_proyecto') or ''}</td>"
             f"<td class=\"d\" style=\"width:140px\">{m.get('numero') or ''}</td>"
-            f"<td class=\"d\" style=\"width:140px\">&nbsp;</td>"
+            f"<td class=\"d\" style=\"width:140px\">{m.get('nombre') or ''}</td>"
             "</tr>"
         )
 
@@ -913,6 +915,35 @@ def _inject_viabilidad_indicadores(template_html: str, indicadores: list[dict] |
         re.IGNORECASE | re.DOTALL,
     )
     return pat.sub(rf"\1{rows_html}\3", template_html, count=1)
+
+
+def _inject_viabilidad_obs_meta_pdd(template_html: str, metas: list[dict]) -> str:
+    numeros = []
+    for m in metas or []:
+        n = m.get("numero")
+        if n is None:
+            continue
+        s = str(n).strip()
+        if s:
+            numeros.append(s)
+    # Evita duplicados manteniendo orden
+    nums = list(dict.fromkeys(numeros))
+    texto_nums = ", ".join(nums)
+
+    # Solo completa el valor despues de ":" en el item especifico, sin alterar el texto del label.
+    pat = re.compile(
+        r"(<li>\s*[^<]*meta del producto:\s*)(</li>)",
+        re.IGNORECASE,
+    )
+    if pat.search(template_html):
+        return pat.sub(rf"\g<1>{texto_nums}\g<2>", template_html, count=1)
+
+    # Fallback: si ya existe algo despues de ":", reemplaza solo ese valor, preservando el texto del label.
+    pat2 = re.compile(
+        r"(<li>\s*[^<]*meta del producto:\s*)([^<]*?)(\s*</li>)",
+        re.IGNORECASE,
+    )
+    return pat2.sub(rf"\g<1>{texto_nums}\g<3>", template_html, count=1)
 
 
 def _inject_viabilidad_ajustada_productos_resultados(
@@ -1124,6 +1155,7 @@ def _render_evaluador_filled_content(
         )
     if template_key == "viabilidad":
         filled = _inject_viabilidad_productos(filled, base.get("metas", []) or [])
+        filled = _inject_viabilidad_obs_meta_pdd(filled, base.get("metas", []) or [])
         filled = _inject_viabilidad_indicadores(filled, indicadores_objetivo)
     if template_key == "viabilidad-ajustada":
         filled = _inject_viabilidad_ajustada_productos_resultados(

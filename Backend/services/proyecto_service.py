@@ -1,4 +1,4 @@
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 from sqlalchemy import func, cast, String
 from typing import List, Optional, Tuple
 from Backend.models import (
@@ -13,6 +13,7 @@ from Backend.models import (
     Viabilidad, Viabilidades,
     TipoViabilidad, FuncionarioViabilidad,
     ObservacionEvaluacion,
+    ObservacionEvaluacionIndicador,
 )
 from Backend import schemas
 
@@ -215,6 +216,15 @@ def listar_metas_por_formulario(db: Session, form_id: int) -> List[Meta]:
         .all()
     )
 
+def listar_metas_por_formulario_con_detalle(db: Session, form_id: int):
+    return (
+        db.query(Meta, Metas.meta_proyecto)
+        .join(Metas, Metas.id_meta == Meta.id)
+        .filter(Metas.id_formulario == form_id)
+        .order_by(Meta.numero_meta, Meta.id)
+        .all()
+    )
+
 def listar_variables_sectorial_por_formulario(db, form_id: int):
     return (
         db.query(VariableSectorial)
@@ -307,6 +317,25 @@ def update_formulario_radicacion(db: Session, form_id: int, data: schemas.Formul
 def replace_metas(db: Session, form_id: int, meta_ids: List[int]) -> None:
     db.query(Metas).filter(Metas.id_formulario == form_id).delete()
     asignar_metas(db, form_id, meta_ids or [])
+
+def replace_metas_detalle(db: Session, form_id: int, metas_detalle: List[dict]) -> None:
+    db.query(Metas).filter(Metas.id_formulario == form_id).delete()
+    rows = []
+    for item in metas_detalle or []:
+        if not isinstance(item, dict):
+            continue
+        try:
+            meta_id = int(item.get("id_meta"))
+        except Exception:
+            continue
+        rows.append(Metas(
+            id_meta=meta_id,
+            id_formulario=form_id,
+            meta_proyecto=((item.get("meta_proyecto") or "").strip() or None),
+        ))
+    if rows:
+        db.add_all(rows)
+    db.commit()
 
 def replace_variables_sectorial(db: Session, form_id: int, variable_ids: List[int]) -> None:
     db.query(VariablesSectorialRel).filter(VariablesSectorialRel.id_formulario == form_id).delete()
@@ -489,6 +518,7 @@ def crear_observacion_evaluacion(
     contenido_html: str,
     nombre_evaluador: str,
     cargo_evaluador: str | None = None,
+    indicadores_objetivo: list[dict] | None = None,
     concepto_tecnico_favorable_dep: str | None = None,
     concepto_sectorial_favorable_dep: str | None = None,
     proyecto_viable_dep: str | None = None,
@@ -532,6 +562,27 @@ def crear_observacion_evaluacion(
         proyecto_viable_dep=chk_via,
     )
     db.add(row)
+    db.flush()
+
+    indicadores_rows = []
+    for idx, it in enumerate(indicadores_objetivo or []):
+        if not isinstance(it, dict):
+            continue
+        indicador = str(it.get("indicador_objetivo_general") or "").strip()
+        unidad = str(it.get("unidad_medida") or "").strip()
+        meta = str(it.get("meta_resultado") or "").strip()
+        if not (indicador or unidad or meta):
+            continue
+        indicadores_rows.append(ObservacionEvaluacionIndicador(
+            id_observacion_evaluacion=row.id,
+            orden=idx,
+            indicador_objetivo_general=indicador,
+            unidad_medida=unidad,
+            meta_resultado=meta,
+        ))
+    if indicadores_rows:
+        db.add_all(indicadores_rows)
+
     db.commit()
     db.refresh(row)
     return row
@@ -540,6 +591,7 @@ def crear_observacion_evaluacion(
 def listar_observaciones_evaluacion(db: Session, form_id: int) -> list[ObservacionEvaluacion]:
     return (
         db.query(ObservacionEvaluacion)
+        .options(selectinload(ObservacionEvaluacion.indicadores_objetivo))
         .filter(ObservacionEvaluacion.id_formulario == form_id)
         .order_by(ObservacionEvaluacion.created_at.desc(), ObservacionEvaluacion.id.desc())
         .all()

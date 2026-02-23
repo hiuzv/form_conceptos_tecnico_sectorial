@@ -34,8 +34,10 @@ class MetaRead(BaseModel):
     nombre_meta: str
     codigo_producto: int
     nombre_producto: str
+    unidad_medida: Optional[str] = None
     codigo_indicador_producto: int
     nombre_indicador_producto: str
+    meta_proyecto: Optional[str] = None
     class Config: from_attributes = True
 
 class VariableSectorialRead(BaseModel):
@@ -177,6 +179,13 @@ class FormularioUpsertBasicos(BaseModel):
 class IdsIn(BaseModel):
     ids: List[int] = []
 
+class MetaFormularioIn(BaseModel):
+    id_meta: int
+    meta_proyecto: Optional[str] = None
+
+class MetasFormularioUpsertIn(BaseModel):
+    metas: List[MetaFormularioIn] = []
+
 class PoliticasUpsertIn(BaseModel):
     politicas: List[int] = []
     valores_politicas: List[ValorMoneda] = []
@@ -224,11 +233,17 @@ class FormularioRadicacionUpsert(BaseModel):
     soportes_otros: int = 0
 
 
+class IndicadorObjetivoEvaluacionIn(BaseModel):
+    indicador_objetivo_general: str = ""
+    unidad_medida: str = ""
+    meta_resultado: str = ""
+
 class ObservacionEvaluacionCreate(BaseModel):
     tipo_documento: str  # OBSERVACIONES | VIABILIDAD | VIABILIDAD_AJUSTADA
     contenido_html: str
     nombre_evaluador: str
     cargo_evaluador: Optional[str] = None
+    indicadores_objetivo: List[IndicadorObjetivoEvaluacionIn] = []
     concepto_tecnico_favorable_dep: Optional[str] = None
     concepto_sectorial_favorable_dep: Optional[str] = None
     proyecto_viable_dep: Optional[str] = None
@@ -241,6 +256,7 @@ class ObservacionEvaluacionRead(BaseModel):
     contenido_html: str
     nombre_evaluador: str
     cargo_evaluador: Optional[str] = None
+    indicadores_objetivo: List[IndicadorObjetivoEvaluacionIn] = []
     concepto_tecnico_favorable_dep: Optional[str] = None
     concepto_sectorial_favorable_dep: Optional[str] = None
     proyecto_viable_dep: Optional[str] = None

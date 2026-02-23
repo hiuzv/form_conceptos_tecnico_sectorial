@@ -9,5 +9,6 @@ class Meta(Base):
     nombre_meta = Column(Text, nullable=False)
     codigo_producto = Column(Integer, nullable=False)
     nombre_producto = Column(Text, nullable=False)
+    unidad_medida = Column(Text, nullable=True)
     codigo_indicador_producto = Column(Integer, nullable=False)
     nombre_indicador_producto = Column(Text, nullable=False)
