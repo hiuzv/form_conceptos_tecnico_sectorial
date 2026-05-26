@@ -313,14 +313,21 @@ def upsert_subcats(form_id:int, body: schemas.IdsIn, db: Session = Depends(get_d
 def listar_proyectos_api(
     nombre: str | None = None,
     cod_id_mga: str | None = Query(None),
+    numero_radicacion: str | None = Query(None),
     id_dependencia: int | None = Query(None),
     page: int = Query(1, ge=1),
     page_size: int = Query(10, ge=1, le=100),
     db: Session = Depends(get_db),
 ):
-    rows, total = proyecto_service.listar_proyectos_pag(db, nombre, cod_id_mga, id_dependencia, page, page_size)
+    rows, total = proyecto_service.listar_proyectos_pag(db, nombre, cod_id_mga, id_dependencia, numero_radicacion, page, page_size)
     items = [
-        {"id": r.id, "nombre": r.nombre_proyecto, "cod_id_mga": r.cod_id_mga, "id_dependencia": r.id_dependencia}
+        {
+            "id": r.id,
+            "numero_radicacion": r.numero_radicacion,
+            "nombre": r.nombre_proyecto,
+            "cod_id_mga": r.cod_id_mga,
+            "id_dependencia": r.id_dependencia,
+        }
         for r in rows
     ]
     return {"items": items, "total": total, "page": page, "page_size": page_size}

@@ -220,7 +220,7 @@ function estructuraRowsToUI(rows: Array<{ anio?: number | null; entidad?: string
 }
 
 /* ---------- Lista ---------- */
-type ProyectoListaItemFlex = Record<string, any> & { nombre?: string; nombre_proyecto?: string; cod_id_mga?: number; id_dependencia?: number; dependencia_id?: number };
+type ProyectoListaItemFlex = Record<string, any> & { nombre?: string; nombre_proyecto?: string; cod_id_mga?: number; numero_radicacion?: string | null; id_dependencia?: number; dependencia_id?: number };
 type RolApp = "dependencia" | "radicador" | "evaluador";
 type DocEvaluador = "observaciones" | "viabilidad" | "viabilidad_ajustada";
 
@@ -355,6 +355,7 @@ export default function App() {
 
   // LISTA
   const [deps, setDeps] = useState<Opcion[]>([]);
+  const [fRadicado, setFRadicado] = useState("");
   const [fNombre, setFNombre] = useState("");
   const [fCodMga, setFCodMga] = useState<string>("");
   const [fDependencia, setFDependencia] = useState<ID | null>(null);
@@ -377,6 +378,7 @@ export default function App() {
       setLoadingLista(true);
       const p = resetPage ? 1 : page;
       const params = new URLSearchParams();
+      if (fRadicado.trim()) params.set("numero_radicacion", fRadicado.trim());
       if (fNombre.trim()) params.set("nombre", fNombre.trim());
       if (fCodMga.trim()) params.set("cod_id_mga", fCodMga.trim());
       if (fDependencia != null) params.set("id_dependencia", String(fDependencia));
@@ -424,7 +426,7 @@ export default function App() {
       queryLista(true);
     }, 400);
     return () => clearTimeout(t);
-  }, [vista, fNombre, fCodMga, fDependencia]);
+  }, [vista, fRadicado, fNombre, fCodMga, fDependencia]);
 
   React.useEffect(() => {
     if (firstFiltersRun.current) {
@@ -436,7 +438,12 @@ export default function App() {
     }, 400);
 
     return () => clearTimeout(t);
-  }, [fNombre, fCodMga, fDependencia]);
+  }, [fRadicado, fNombre, fCodMga, fDependencia]);
+
+  useEffect(() => {
+    if (vista !== "lista") return;
+    queryLista(false);
+  }, [page, pageSize]);
 
   // FORM
   const [lineas, setLineas] = useState<Opcion[]>([]);
@@ -1751,7 +1758,22 @@ export default function App() {
 
           {/* Filtros */}
           <Card className="shadow-sm">
-            <CardContent className="p-4 grid grid-cols-1 md:grid-cols-3 gap-3">
+            <CardContent className="p-4 grid grid-cols-1 md:grid-cols-4 gap-3">
+              <div>
+                <Label>Radicado</Label>
+                <Input
+                  value={fRadicado}
+                  onChange={(e) => setFRadicado(sanitizeSearchTerm(e.target.value))}
+                  onPaste={(e) => {
+                    e.preventDefault();
+                    const txt = e.clipboardData?.getData("text/plain") ?? "";
+                    setFRadicado(sanitizeSearchTerm(txt));
+                  }}
+                  onDrop={(e) => e.preventDefault()}
+                  onDragOver={(e) => e.preventDefault()}
+                  placeholder="Buscar por radicado..."
+                />
+              </div>
               <div>
                 <Label>Nombre</Label>
                 <Input
@@ -1789,10 +1811,11 @@ export default function App() {
 
           {/* Tabla */}
           <div className="overflow-auto rounded-xl border">
-            <table className="min-w-[760px] w-full text-sm table-fixed">
+            <table className="min-w-[900px] w-full text-sm table-fixed">
               <thead className="bg-slate-100">
                 <tr>
-                  <th className="px-3 py-2 text-left w-1/2">Nombre</th>
+                  <th className="px-3 py-2 text-left w-36">Radicado</th>
+                  <th className="px-3 py-2 text-left w-[38%]">Nombre</th>
                   <th className="px-3 py-2 text-left w-28">Cod. MGA</th>
                   <th className="px-3 py-2 text-left w-1/4">Dependencia</th>
                   <th className="px-3 py-2 text-right w-24">Acciones</th>
@@ -1800,17 +1823,19 @@ export default function App() {
               </thead>
               <tbody>
                 {loadingLista ? (
-                  <tr><td colSpan={4} className="px-3 py-10 text-center text-slate-500">Cargando…</td></tr>
+                  <tr><td colSpan={5} className="px-3 py-10 text-center text-slate-500">Cargando…</td></tr>
                 ) : lista.length === 0 ? (
-                  <tr><td colSpan={4} className="px-3 py-10 text-center text-slate-500">Sin resultados</td></tr>
+                  <tr><td colSpan={5} className="px-3 py-10 text-center text-slate-500">Sin resultados</td></tr>
                 ) : (
                   lista.map((p, idx) => {
                     const rowId = getRowId(p);
+                    const radicadoFila = p.numero_radicacion ?? p.radicado ?? "";
                     const nombreFila = p.nombre ?? p.nombre_proyecto ?? "(sin nombre)";
                     const codFila = p.cod_id_mga ?? p.cod_mga ?? p.codigo_mga ?? "";
                     const depFila = p.id_dependencia ?? p.dependencia_id;
                     return (
                       <tr key={rowId ?? `${codFila || "sinCod"}-${idx}`} className="border-t align-top">
+                        <td className="px-3 py-2 break-words whitespace-pre-wrap">{radicadoFila || "-"}</td>
                         <td className="px-3 py-2 break-words whitespace-pre-wrap">{nombreFila}</td>
                         <td className="px-3 py-2">{codFila}</td>
                         <td className="px-3 py-2 break-words whitespace-pre-wrap">{(() => {
@@ -2027,6 +2052,7 @@ export default function App() {
                 setAnioInicioEFAjustada(null);
                 setAniosEFAjustada([]);
                 setEFAjustadaUI({});
+                setFRadicado("");
                 setFNombre("");
                 setFCodMga("");
                 setFDependencia(null);

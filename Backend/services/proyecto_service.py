@@ -405,6 +405,7 @@ def replace_subcategorias(db: Session, form_id: int, subcategoria_ids: List[int]
     asignar_subcategorias(db, form_id, subcategoria_ids or [])
 
 def listar_proyectos_pag(db: Session, nombre: Optional[str], cod_id_mga: Optional[str], id_dependencia: Optional[int],
+                         numero_radicacion: Optional[str],
                          page:int, page_size:int) -> tuple[list[Formulario], int]:
     q = db.query(Formulario)
     if nombre:
@@ -413,6 +414,8 @@ def listar_proyectos_pag(db: Session, nombre: Optional[str], cod_id_mga: Optiona
         cod_txt = "".join(ch for ch in cod_id_mga if ch.isdigit())
         if cod_txt:
             q = q.filter(cast(Formulario.cod_id_mga, String).like(f"%{cod_txt}%"))
+    if numero_radicacion:
+        q = q.filter(_ilike_no_accents(Formulario.numero_radicacion, numero_radicacion.strip()))
     if id_dependencia is not None:
         q = q.filter(Formulario.id_dependencia == id_dependencia)
     total = q.count()
