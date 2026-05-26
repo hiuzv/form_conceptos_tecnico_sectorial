@@ -12,6 +12,13 @@ class Settings(BaseSettings):
 
     CORS_ORIGINS: Union[str, List[str]] = "*"
 
+    @field_validator("DEBUG", mode="before")
+    @classmethod
+    def normalize_debug(cls, v):
+        if isinstance(v, str) and v.strip().lower() in {"release", "prod", "production"}:
+            return False
+        return v
+
     @field_validator("CORS_ORIGINS", mode="before")
     @classmethod
     def normalize_cors(cls, v):

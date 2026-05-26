@@ -7,11 +7,19 @@ import re
 import base64
 import asyncio
 import sys
+import html as html_lib
 from typing import Dict, Optional, Tuple
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 from datetime import datetime
 from zoneinfo import ZoneInfo
+from fastapi import UploadFile
+from docx import Document
+from docx.document import Document as DocxDocument
+from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.oxml.ns import qn
+from docx.table import Table, _Cell
+from docx.text.paragraph import Paragraph
 from Backend.models import (
     Formulario, Metas, Meta, Sector, Programa, LineaEstrategica, Dependencia,
     VariableSectorial, VariableTecnico,
@@ -20,7 +28,7 @@ from Backend.models import (
     Politicas as PoliticasRel,
     Categorias as CategoriasRel,
     Subcategorias as SubcategoriasRel,
-    EstructuraFinanciera, Politica, Categoria, Subcategoria, PeriodoLema,
+    EstructuraFinanciera, EstructuraFinancieraAjustada, Politica, Categoria, Subcategoria, PeriodoLema,
     Viabilidad, Viabilidades, FuncionarioViabilidad
 )
 from Backend.services.excel_fill import fill_from_template, fill_viabilidad_dependencias, fill_cadena_valor
@@ -141,6 +149,15 @@ def _fetch_base_context(db: Session, form_id: int) -> dict:
     base["estructura_financiera"] = [
         {"anio": r.anio, "entidad": (r.entidad or "").strip().upper(), "valor": r.valor}
         for r in ef_rows
+    ]
+    ef_adj_rows = (
+        db.query(EstructuraFinancieraAjustada)
+        .filter(EstructuraFinancieraAjustada.id_formulario == form_id)
+        .all()
+    )
+    base["estructura_financiera_ajustada"] = [
+        {"anio": r.anio, "entidad": (r.entidad or "").strip().upper(), "valor": r.valor}
+        for r in ef_adj_rows
     ]
     sec_rows = (
         db.query(VariablesSectorialRel.id_variable_sectorial, VariablesSectorialRel.respuesta)
@@ -676,6 +693,21 @@ def _fmt_money_eval(v: float | int | None) -> str:
     return f"{n:,.0f}".replace(",", ".")
 
 
+def _fmt_money_eval_with_decimals(v: float | int | Decimal | None) -> str:
+    try:
+        n = Decimal(str(v or 0)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    except Exception:
+        n = Decimal("0.00")
+    if abs(n) < Decimal("0.005"):
+        return ""
+
+    if n == n.to_integral_value():
+        return f"{int(n):,}".replace(",", ".")
+
+    int_part, dec_part = f"{n:.2f}".split(".")
+    return f"{int(int_part):,}".replace(",", ".") + f",{dec_part}"
+
+
 def _fmt_fecha_doc_es(d) -> str:
     if not d:
         return ""
@@ -731,18 +763,51 @@ def _build_eval_tokens(
     nombre_evaluador: str,
     cargo_evaluador: str = "",
     fecha_evaluador: str | None = None,
+    template_key: str | None = None,
 ) -> dict[str, str]:
-    ef = base.get("estructura_financiera", []) or []
-    years, lookup = _years_and_lookup(ef)
+    ef_base = base.get("estructura_financiera", []) or []
+    ef_adj = base.get("estructura_financiera_ajustada", []) or []
+    if template_key in {"viabilidad_ajustada", "viabilidad-ajustada"} and ef_adj:
+        years_source = ef_adj
+    else:
+        years_source = ef_base if ef_base else ef_adj
+    years, _ = _years_and_lookup(years_source)
+    _, lookup_base = _years_and_lookup(ef_base)
+    _, lookup_adj = _years_and_lookup(ef_adj if ef_adj else ef_base)
+    if not ef_base:
+        lookup_base = lookup_adj
+    sgp_keys = [
+        "SGP_LIBRE_INVERSION",
+        "SGP_LIBRE_DESTINACION",
+        "SGP_APSB",
+        "SGP_EDUCACION",
+        "SGP_ALIMENTACION_ESCOLAR",
+        "SGP_CULTURA",
+        "SGP_DEPORTE",
+        "SGP_SALUD",
+    ]
 
-    def get_val(y: int, ent: str) -> float:
-        return float(lookup.get((y, ent), 0.0))
+    def get_val(src: dict[tuple[int, str], float], y: int, ent: str) -> float:
+        return float(src.get((y, ent), 0.0))
 
-    nacion = [get_val(y, "NACION") for y in years]
-    depto = [get_val(y, "DEPARTAMENTO") for y in years]
-    muni = [get_val(y, "MUNICIPIO") for y in years]
-    otros = [get_val(y, "OTROS") for y in years]
+    # Estructura financiera base (no ajustada)
+    nacion = [get_val(lookup_base, y, "NACION") for y in years]
+    depto = [get_val(lookup_base, y, "DEPARTAMENTO") for y in years]
+    muni = [get_val(lookup_base, y, "MUNICIPIO") for y in years]
+    otros = [get_val(lookup_base, y, "OTROS") for y in years]
+    sgp = [sum(get_val(lookup_base, y, key) for key in sgp_keys) for y in years]
     subtotal = [nacion[i] + depto[i] + muni[i] + otros[i] for i in range(4)]
+
+    # Estructura financiera ajustada (tabla adicional del evaluador)
+    propios_adj = [get_val(lookup_adj, y, "PROPIOS") for y in years]
+    sgp_adj = [sum(get_val(lookup_adj, y, key) for key in sgp_keys) for y in years]
+    nacion_adj = [get_val(lookup_adj, y, "NACION") for y in years]
+    muni_adj = [get_val(lookup_adj, y, "MUNICIPIO") for y in years]
+    otros_adj = [get_val(lookup_adj, y, "OTROS") for y in years]
+    subtotal_ajustado = [
+        propios_adj[i] + sgp_adj[i] + nacion_adj[i] + muni_adj[i] + otros_adj[i]
+        for i in range(4)
+    ]
 
     now = _now_bogota()
     fecha_default = _fmt_fecha_doc_es(now)
@@ -800,6 +865,15 @@ def _build_eval_tokens(
         tokens[f"f_vig_otr{idx}"] = _fmt_money_eval(otros[i])
         tokens[f"f_vig_tot{idx}"] = _fmt_money_eval(subtotal[i])
         tokens[f"f_tot{idx}"] = _fmt_money_eval(subtotal[i])
+        tokens[f"f_vig_sgp{idx}"] = _fmt_money_eval(sgp[i])
+
+        # Estructura financiera ajustada (tabla adicional de viabilidad ajustada)
+        tokens[f"f_adj_prop{idx}"] = _fmt_money_eval_with_decimals(propios_adj[i])
+        tokens[f"f_adj_sgp{idx}"] = _fmt_money_eval_with_decimals(sgp_adj[i])
+        tokens[f"f_adj_nac{idx}"] = _fmt_money_eval_with_decimals(nacion_adj[i])
+        tokens[f"f_adj_mun{idx}"] = _fmt_money_eval_with_decimals(muni_adj[i])
+        tokens[f"f_adj_otr{idx}"] = _fmt_money_eval_with_decimals(otros_adj[i])
+        tokens[f"f_adj_tot{idx}"] = _fmt_money_eval_with_decimals(subtotal_ajustado[i])
 
     tokens["f_vig_nac5"] = _fmt_money_eval(sum(nacion))
     tokens["f_vig_dep5"] = _fmt_money_eval(sum(depto))
@@ -807,6 +881,14 @@ def _build_eval_tokens(
     tokens["f_vig_otr5"] = _fmt_money_eval(sum(otros))
     tokens["f_vig_tot5"] = _fmt_money_eval(sum(subtotal))
     tokens["f_tot5"] = _fmt_money_eval(sum(subtotal))
+    tokens["f_vig_sgp5"] = _fmt_money_eval(sum(sgp))
+
+    tokens["f_adj_prop5"] = _fmt_money_eval_with_decimals(sum(propios_adj))
+    tokens["f_adj_sgp5"] = _fmt_money_eval_with_decimals(sum(sgp_adj))
+    tokens["f_adj_nac5"] = _fmt_money_eval_with_decimals(sum(nacion_adj))
+    tokens["f_adj_mun5"] = _fmt_money_eval_with_decimals(sum(muni_adj))
+    tokens["f_adj_otr5"] = _fmt_money_eval_with_decimals(sum(otros_adj))
+    tokens["f_adj_tot5"] = _fmt_money_eval_with_decimals(sum(subtotal_ajustado))
     return tokens
 
 
@@ -1039,6 +1121,254 @@ def _logo_data_uri(base_dir: Path) -> str:
         return ""
 
 
+def _iter_docx_blocks(parent):
+    if isinstance(parent, DocxDocument):
+        body = parent.element.body
+    elif isinstance(parent, _Cell):
+        body = parent._tc
+    else:
+        return
+
+    for child in body.iterchildren():
+        if child.tag.endswith("}p"):
+            yield Paragraph(child, parent)
+        elif child.tag.endswith("}tbl"):
+            yield Table(child, parent)
+
+
+def _style_attr(styles: list[str]) -> str:
+    cleaned = [s for s in styles if s]
+    return f' style="{";".join(cleaned)}"' if cleaned else ""
+
+
+def _pt(value) -> str:
+    try:
+        return f"{float(value.pt):.1f}px"
+    except Exception:
+        return ""
+
+
+def _paragraph_styles(paragraph: Paragraph) -> list[str]:
+    styles: list[str] = []
+    alignment = paragraph.alignment
+    if alignment == WD_ALIGN_PARAGRAPH.CENTER:
+        styles.append("text-align:center")
+    elif alignment == WD_ALIGN_PARAGRAPH.RIGHT:
+        styles.append("text-align:right")
+    elif alignment == WD_ALIGN_PARAGRAPH.JUSTIFY:
+        styles.append("text-align:justify")
+
+    fmt = paragraph.paragraph_format
+    left = _pt(fmt.left_indent)
+    first = _pt(fmt.first_line_indent)
+    before = _pt(fmt.space_before)
+    after = _pt(fmt.space_after)
+    if left:
+        styles.append(f"margin-left:{left}")
+    if first:
+        styles.append(f"text-indent:{first}")
+    if before:
+        styles.append(f"margin-top:{before}")
+    if after:
+        styles.append(f"margin-bottom:{after}")
+    if isinstance(fmt.line_spacing, (int, float)):
+        styles.append(f"line-height:{fmt.line_spacing}")
+    return styles
+
+
+def _run_styles(run) -> list[str]:
+    styles: list[str] = []
+    font = run.font
+    if font.size:
+        styles.append(f"font-size:{_pt(font.size)}")
+    if font.name:
+        styles.append(f"font-family:{html_lib.escape(font.name)}")
+    if font.color and font.color.rgb:
+        styles.append(f"color:#{font.color.rgb}")
+    if font.highlight_color:
+        highlight_map = {
+            1: "#000000",
+            2: "#0000ff",
+            3: "#00ffff",
+            4: "#00ff00",
+            5: "#ff00ff",
+            6: "#ff0000",
+            7: "#ffff00",
+            9: "#000080",
+            10: "#008080",
+            11: "#008000",
+            12: "#800080",
+            13: "#800000",
+            14: "#808000",
+            15: "#808080",
+            16: "#c0c0c0",
+        }
+        color = highlight_map.get(int(font.highlight_color))
+        if color:
+            styles.append(f"background-color:{color}")
+    return styles
+
+
+def _run_to_html(run) -> str:
+    txt = html_lib.escape(run.text or "").replace("\n", "<br>")
+    if not txt:
+        return ""
+
+    if run.bold:
+        txt = f"<strong>{txt}</strong>"
+    if run.italic:
+        txt = f"<em>{txt}</em>"
+    if run.underline:
+        txt = f"<u>{txt}</u>"
+
+    styles = _run_styles(run)
+    if styles:
+        txt = f"<span{_style_attr(styles)}>{txt}</span>"
+    return txt
+
+
+def _paragraph_to_html(paragraph: Paragraph) -> str:
+    text_parts = [_run_to_html(run) for run in paragraph.runs]
+
+    content = "".join(text_parts).strip()
+    if not content:
+        return ""
+
+    style_name = (paragraph.style.name if paragraph.style else "").lower()
+    p_style = _style_attr(_paragraph_styles(paragraph))
+    if "heading 1" in style_name or "título 1" in style_name or "titulo 1" in style_name:
+        return f"<h3{p_style}>{content}</h3>"
+    if "heading" in style_name or "título" in style_name or "titulo" in style_name:
+        return f"<p{p_style}><strong>{content}</strong></p>"
+    if "list" in style_name or "lista" in style_name:
+        if "number" in style_name or "número" in style_name or "numero" in style_name:
+            return f"<ol><li{p_style}>{content}</li></ol>"
+        return f"<ul><li{p_style}>{content}</li></ul>"
+    return f"<p{p_style}>{content}</p>"
+
+
+def _cell_background(cell: _Cell) -> str:
+    tc_pr = cell._tc.tcPr
+    if tc_pr is None:
+        return ""
+    shd = tc_pr.find(qn("w:shd"))
+    fill = shd.get(qn("w:fill")) if shd is not None else None
+    if fill and fill.lower() != "auto":
+        return f"background-color:#{fill}"
+    return ""
+
+
+def _cell_styles(cell: _Cell) -> list[str]:
+    styles = [
+        "border:1px solid #222",
+        "padding:2px 4px",
+        "vertical-align:top",
+        "white-space:normal",
+        "overflow-wrap:break-word",
+    ]
+    bg = _cell_background(cell)
+    if bg:
+        styles.append(bg)
+    return styles
+
+
+def _cell_to_html(cell: _Cell) -> str:
+    parts: list[str] = []
+    for block in _iter_docx_blocks(cell):
+        if isinstance(block, Paragraph):
+            p_html = _paragraph_to_html(block)
+            if p_html:
+                parts.append(p_html)
+        elif isinstance(block, Table):
+            parts.append(_table_to_html(block))
+    return "".join(parts) or "&nbsp;"
+
+
+def _table_to_html(table: Table) -> str:
+    rows_html: list[str] = []
+    for row in table.rows:
+        cells_html: list[str] = []
+        cells = list(row.cells)
+        i = 0
+        while i < len(cells):
+            cell = cells[i]
+            tc = cell._tc
+            colspan = 1
+            while i + colspan < len(cells) and cells[i + colspan]._tc is tc:
+                colspan += 1
+            colspan_attr = f' colspan="{colspan}"' if colspan > 1 else ""
+            cells_html.append(f"<td{colspan_attr}{_style_attr(_cell_styles(cell))}>{_cell_to_html(cell)}</td>")
+            i += colspan
+        if cells_html:
+            rows_html.append(f"<tr>{''.join(cells_html)}</tr>")
+
+    if not rows_html:
+        return ""
+
+    return (
+        '<table border="0" cellpadding="2" cellspacing="0" '
+        'style="width:100%;max-width:100%;border-collapse:collapse;table-layout:auto;margin-left:auto;margin-right:auto">'
+        f"<tbody>{''.join(rows_html)}</tbody>"
+        "</table>"
+    )
+
+
+async def word_upload_to_editor_html(file: UploadFile) -> str:
+    filename = (file.filename or "").lower()
+    if not filename.endswith(".docx"):
+        raise ValueError("Solo se permiten archivos .docx.")
+
+    raw = await file.read()
+    if not raw:
+        raise ValueError("El archivo Word está vacío.")
+    if len(raw) > 10 * 1024 * 1024:
+        raise ValueError("El archivo Word supera el límite de 10 MB.")
+
+    try:
+        doc = Document(BytesIO(raw))
+    except Exception:
+        raise ValueError("No se pudo leer el archivo .docx.")
+
+    parts: list[str] = []
+    pending_list_items: list[str] = []
+    pending_list_tag = "ul"
+
+    def flush_list() -> None:
+        nonlocal pending_list_items
+        if pending_list_items:
+            parts.append(f"<{pending_list_tag}>{''.join(pending_list_items)}</{pending_list_tag}>")
+            pending_list_items = []
+
+    for block in _iter_docx_blocks(doc):
+        if isinstance(block, Paragraph):
+            p_html = _paragraph_to_html(block)
+            if not p_html:
+                continue
+            if (
+                (p_html.startswith("<ul><li") and p_html.endswith("</li></ul>")) or
+                (p_html.startswith("<ol><li") and p_html.endswith("</li></ol>"))
+            ):
+                tag = p_html[1:3]
+                if pending_list_items and pending_list_tag != tag:
+                    flush_list()
+                pending_list_tag = tag
+                pending_list_items.append(p_html.removeprefix(f"<{tag}>").removesuffix(f"</{tag}>"))
+            else:
+                flush_list()
+                parts.append(p_html)
+        elif isinstance(block, Table):
+            flush_list()
+            table_html = _table_to_html(block)
+            if table_html:
+                parts.append(table_html)
+    flush_list()
+
+    html = "".join(parts).strip()
+    if not html:
+        raise ValueError("No se encontró contenido importable en el Word.")
+    return html
+
+
 def render_evaluador_template_html(
     db: Session,
     form_id: int,
@@ -1082,6 +1412,9 @@ def render_evaluador_template_html(
         ".doc-header{text-align:center;margin:0;line-height:1;}"
         ".doc-header img{width:120px;max-width:30vw;height:auto;display:inline-block;}"
         ".doc-content{display:block;}"
+        ".doc-content table:not(.tbl){margin-left:auto!important;margin-right:auto!important;width:100%!important;max-width:100%!important;border-collapse:collapse!important;table-layout:auto!important;}"
+        ".doc-content table:not(.tbl) colgroup,.doc-content table:not(.tbl) col{display:none!important;}"
+        ".doc-content table:not(.tbl) th,.doc-content table:not(.tbl) td{width:auto!important;min-width:0!important;max-width:none!important;border:1px solid #222;padding:2px 4px;vertical-align:top;white-space:normal!important;overflow-wrap:break-word;word-break:normal;}"
         ".doc-footer{text-align:center;font-size:11px;line-height:1.35;margin:0;page-break-inside:avoid;}"
         ".doc-footer .nota{font-weight:700;}"
         "@media print{"
@@ -1135,6 +1468,7 @@ def _render_evaluador_filled_content(
         nombre_evaluador,
         cargo_evaluador or "",
         fecha_evaluador=fecha_evaluador,
+        template_key=template_key,
     )
     raw = template_path.read_text(encoding="utf-8", errors="ignore")
     filled = _replace_tokens_in_html(raw, tokens)
@@ -1223,7 +1557,12 @@ def render_evaluador_template_pdf(
 
     html = (
         "<!doctype html><html><head><meta charset='utf-8'/>"
-        "<style>@page{size:A4;} body{margin:0;padding:0;} .doc{max-width:730px;margin:0 auto;}</style>"
+        "<style>"
+        "@page{size:A4;} body{margin:0;padding:0;} .doc{max-width:730px;margin:0 auto;}"
+        ".doc table:not(.tbl){margin-left:auto!important;margin-right:auto!important;width:100%!important;max-width:100%!important;border-collapse:collapse!important;table-layout:auto!important;}"
+        ".doc table:not(.tbl) colgroup,.doc table:not(.tbl) col{display:none!important;}"
+        ".doc table:not(.tbl) th,.doc table:not(.tbl) td{width:auto!important;min-width:0!important;max-width:none!important;border:1px solid #222;padding:2px 4px;vertical-align:top;white-space:normal!important;overflow-wrap:break-word;word-break:normal;}"
+        "</style>"
         "</head><body>"
         f"<div class='doc'>{filled}</div>"
         "</body></html>"
@@ -1298,7 +1637,12 @@ async def render_evaluador_template_pdf_async(
     )
     html = (
         "<!doctype html><html><head><meta charset='utf-8'/>"
-        "<style>@page{size:A4;} body{margin:0;padding:0;} .doc{max-width:730px;margin:0 auto;}</style>"
+        "<style>"
+        "@page{size:A4;} body{margin:0;padding:0;} .doc{max-width:730px;margin:0 auto;}"
+        ".doc table:not(.tbl){margin-left:auto!important;margin-right:auto!important;width:100%!important;max-width:100%!important;border-collapse:collapse!important;table-layout:auto!important;}"
+        ".doc table:not(.tbl) colgroup,.doc table:not(.tbl) col{display:none!important;}"
+        ".doc table:not(.tbl) th,.doc table:not(.tbl) td{width:auto!important;min-width:0!important;max-width:none!important;border:1px solid #222;padding:2px 4px;vertical-align:top;white-space:normal!important;overflow-wrap:break-word;word-break:normal;}"
+        "</style>"
         "</head><body>"
         f"<div class='doc'>{filled}</div>"
         "</body></html>"

@@ -266,6 +266,24 @@ def upsert_ef(form_id:int, body: schemas.EstructuraFinancieraRead, db: Session =
     proyecto_service.asignar_estructura_financiera(db, form_id, filas)
     return obtener_formulario(form_id, db)
 
+@router.get("/formulario/{form_id}/estructura-financiera-ajustada", response_model=schemas.EstructuraFinancieraRead)
+def get_ef_ajustada(form_id:int, db: Session = Depends(get_db)):
+    filas = proyecto_service.listar_estructura_financiera_ajustada(db, form_id)
+    return schemas.EstructuraFinancieraRead(
+        filas=[schemas.EstructuraFinancieraRow(id=e.id, anio=e.anio, entidad=e.entidad, valor=e.valor) for e in filas],
+        total_proyecto=None,
+    )
+
+@router.put("/formulario/{form_id}/estructura-financiera-ajustada", response_model=schemas.EstructuraFinancieraRead)
+def upsert_ef_ajustada(form_id:int, body: schemas.EstructuraFinancieraRead, db: Session = Depends(get_db)):
+    filas = getattr(body, "filas", []) or []
+    proyecto_service.asignar_estructura_financiera_ajustada(db, form_id, filas)
+    saved = proyecto_service.listar_estructura_financiera_ajustada(db, form_id)
+    return schemas.EstructuraFinancieraRead(
+        filas=[schemas.EstructuraFinancieraRow(id=e.id, anio=e.anio, entidad=e.entidad, valor=e.valor) for e in saved],
+        total_proyecto=None,
+    )
+
 @router.put("/formulario/{form_id}/variables-sectorial", response_model=schemas.FormularioRead)
 def upsert_vs(form_id:int, body: schemas.IdsIn, db: Session = Depends(get_db)):
     proyecto_service.replace_variables_sectorial(db, form_id, body.ids or [])

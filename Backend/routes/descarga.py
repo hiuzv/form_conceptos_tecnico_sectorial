@@ -1,5 +1,5 @@
 # Backend/routes/descarga.py
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, Field
@@ -39,6 +39,17 @@ class EvaluadorTemplateIn(BaseModel):
     concepto_tecnico_favorable_dep: str | None = None
     concepto_sectorial_favorable_dep: str | None = None
     proyecto_viable_dep: str | None = None
+
+
+@router.post("/evaluador/import-word")
+async def importar_word_evaluador(file: UploadFile = File(...)):
+    try:
+        html = await descarga_service.word_upload_to_editor_html(file)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error importando Word: {e}")
+    return {"html": html}
 
 @router.get("/excel/concepto-tecnico-sectorial/{form_id}")
 def descargar_excel_concepto_tecnico_sectorial(form_id: int, db: Session = Depends(get_db)):

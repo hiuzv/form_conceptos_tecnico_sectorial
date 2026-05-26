@@ -178,6 +178,46 @@ function getYears(anio_inicio?: number | null): number[] {
   if (!anio_inicio || anio_inicio < 1900 || anio_inicio > 3000) return [];
   return [anio_inicio, anio_inicio + 1, anio_inicio + 2, anio_inicio + 3];
 }
+function getEditableYears(anio_inicio?: number | null): number[] {
+  const ys = getYears(anio_inicio);
+  return ys.length === 4 ? ys : [];
+}
+function isValidYear(y?: number | null): y is number {
+  return Number.isFinite(y) && Number(y) >= 1900 && Number(y) <= 3000;
+}
+function buildEstructuraFinancieraFilas(
+  efUI: Record<string, string | undefined>,
+  anioInicioOrYears?: number | null | number[]
+): Array<{anio:number; entidad:EntidadFin; valor:number}> {
+  const ys = Array.isArray(anioInicioOrYears)
+    ? anioInicioOrYears.filter(isValidYear)
+    : getYears(anioInicioOrYears);
+  const filas: Array<{anio:number; entidad:EntidadFin; valor:number}> = [];
+  ys.forEach(anio => {
+    ENTIDADES.forEach(ent => {
+      if (ent === "DEPARTAMENTO") return;
+      const raw = efUI[keyFin(anio, ent)] ?? "";
+      const num = parseDecimal2(raw) ?? 0;
+      filas.push({ anio, entidad: ent, valor: num });
+    });
+    filas.push({ anio, entidad: "DEPARTAMENTO", valor: calcDepartamentoForYear(efUI, anio) });
+  });
+  return filas;
+}
+function estructuraRowsToUI(rows: Array<{ anio?: number | null; entidad?: string; valor?: number | string }> | undefined) {
+  const efUI: Record<string, string> = {};
+  const ys = new Set<number>();
+  (rows || []).forEach((r) => {
+    const anio = Number(r?.anio);
+    const ent = String(r?.entidad ?? "").toUpperCase() as EntidadFin;
+    if (!Number.isFinite(anio) || !ent || ent === "DEPARTAMENTO") return;
+    ys.add(anio);
+    const val = Number(r?.valor ?? 0);
+    efUI[keyFin(anio, ent)] = Number.isFinite(val) ? String(val) : "0";
+  });
+  const ordered = Array.from(ys).sort((a, b) => a - b);
+  return { efUI, anioInicio: ordered.length ? ordered[0] : null, years: ordered };
+}
 
 /* ---------- Lista ---------- */
 type ProyectoListaItemFlex = Record<string, any> & { nombre?: string; nombre_proyecto?: string; cod_id_mga?: number; id_dependencia?: number; dependencia_id?: number };
@@ -287,11 +327,16 @@ export default function App() {
   const [resultadosAjustados, setResultadosAjustados] = useState<MedicionAjustadaItem[]>([
     { descripcion: "", unidad_medida: "", meta_programada: "", meta_alcanzada: "" },
   ]);
+  const [anioInicioEFAjustada, setAnioInicioEFAjustada] = useState<number | null>(null);
+  const [aniosEFAjustada, setAniosEFAjustada] = useState<number[]>([]);
+  const [efAjustadaUI, setEFAjustadaUI] = useState<Record<string, string | undefined>>({});
   const [metasProyectoById, setMetasProyectoById] = useState<Record<number, string>>({});
   const [metasPddEvaluador, setMetasPddEvaluador] = useState<MetaPddEvaluadorItem[]>([]);
   const [editorFontSizePx, setEditorFontSizePx] = useState("14");
+  const [importingWord, setImportingWord] = useState(false);
   const editorRef = useRef<HTMLDivElement | null>(null);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
+  const wordInputRef = useRef<HTMLInputElement | null>(null);
   const selectedImageRef = useRef<HTMLImageElement | null>(null);
   const [openRadicacion, setOpenRadicacion] = useState(false);
   const [radicacionLoading, setRadicacionLoading] = useState(false);
@@ -448,6 +493,30 @@ export default function App() {
   const totalProyecto = useMemo(() => round2(years.reduce((acc, anio) => acc + (totalesAnio[anio] ?? 0), 0)), [years, totalesAnio]);
   const difProyectoPoliticas = useMemo(() => round2(totalProyecto - totalPoliticas), [totalProyecto, totalPoliticas]);
   const igualesProyectoPoliticas = numbersEqual(totalProyecto, totalPoliticas);
+  const yearsEFAjustada = useMemo(() => {
+    const seen = new Set<number>();
+    return aniosEFAjustada.filter((y) => {
+      if (!isValidYear(y) || seen.has(y)) return false;
+      seen.add(y);
+      return true;
+    }).slice(0, 4);
+  }, [aniosEFAjustada]);
+  const totalesAnioEFAjustada = useMemo(() => {
+    const out: Record<number, number> = {};
+    yearsEFAjustada.forEach(anio => {
+      const sum =
+        calcDepartamentoForYear(efAjustadaUI, anio) +
+        uiNumber(efAjustadaUI[keyFin(anio, "MUNICIPIO")]) +
+        uiNumber(efAjustadaUI[keyFin(anio, "NACION")]) +
+        uiNumber(efAjustadaUI[keyFin(anio, "OTROS")] );
+      out[anio] = round2(sum);
+    });
+    return out;
+  }, [efAjustadaUI, yearsEFAjustada]);
+  const totalEFAjustada = useMemo(
+    () => round2(yearsEFAjustada.reduce((acc, anio) => acc + (totalesAnioEFAjustada[anio] ?? 0), 0)),
+    [yearsEFAjustada, totalesAnioEFAjustada]
+  );
   const varsSectorialRespSorted = useMemo(() => [...varsSectorialResp].sort((a,b) => a.id - b.id), [varsSectorialResp]);
   const varsTecnicoRespSorted = useMemo(() => [...varsTecnicoResp].sort((a,b) => a.id - b.id), [varsTecnicoResp]);
   const viabRespSorted = useMemo(() => [...viabResp].sort((a,b) => a.id - b.id), [viabResp]);
@@ -590,23 +659,7 @@ export default function App() {
       ...(state.variables_sel || []),
     ]));
 
-    const estructura_financiera: Array<{anio:number; entidad:EntidadFin; valor:number}> = [];
-    const ys = getYears(state.anio_inicio);
-    ys.forEach(anio => {
-      ENTIDADES.forEach(ent => {
-        if (ent === "DEPARTAMENTO") return;
-        const raw = state.estructura_financiera_ui[keyFin(anio, ent)] ?? "";
-        const num = parseDecimal2(raw);
-        estructura_financiera.push({ anio, entidad: ent, valor: num ?? 0 });
-      });
-      const sumDept = estructura_financiera
-        .filter(r => r.anio === anio && (
-          r.entidad === "PROPIOS" ||
-          r.entidad.startsWith("SGP_")
-        ))
-        .reduce((a, b) => a + (b.valor ?? 0), 0);
-      estructura_financiera.push({ anio, entidad: "DEPARTAMENTO", valor: sumDept });
-    });
+    const estructura_financiera = buildEstructuraFinancieraFilas(state.estructura_financiera_ui, state.anio_inicio);
 
     return {
       nombre_proyecto: db.nombre_proyecto,
@@ -686,19 +739,7 @@ export default function App() {
       });
     }
     if (which === 3) {
-      const ys = getYears(datos.anio_inicio);
-      const filas: Array<{anio:number; entidad:EntidadFin; valor:number}> = [];
-
-      ys.forEach(anio => {
-        ENTIDADES.forEach(ent => {
-          if (ent === "DEPARTAMENTO") return;
-          const raw = datos.estructura_financiera_ui[keyFin(anio, ent)] ?? "";
-          const num = parseDecimal2(raw) ?? 0;
-          filas.push({ anio, entidad: ent, valor: num });
-        });
-        const dep = calcDepartamentoForYear(datos.estructura_financiera_ui, anio);
-        filas.push({ anio, entidad: "DEPARTAMENTO", valor: dep });
-      });
+      const filas = buildEstructuraFinancieraFilas(datos.estructura_financiera_ui, datos.anio_inicio);
       await fetch(`${API_BASE_DEFAULT}/proyecto/formulario/${id}/estructura-financiera`, {
         method:"PUT",
         headers:{"Content-Type":"application/json"},
@@ -831,7 +872,7 @@ export default function App() {
       const metasProyectoMap = Object.fromEntries(
         (Array.isArray(r.metas) ? r.metas : [])
           .map((m: any) => [Number(m.id ?? m.id_meta ?? m.meta_id), String(m.meta_proyecto ?? "")])
-          .filter(([id]) => Number.isFinite(id))
+          .filter(([id]: [number, string]) => Number.isFinite(id))
       ) as Record<number, string>;
       const varsSecSel = (r.variables_sectorial || r.variables_sectoriales || []).map((v: any) =>
         Number(v.id ?? v.id_variable ?? v.variable_id)
@@ -967,7 +1008,43 @@ export default function App() {
 
   function updateEditorContentFromDom() {
     if (!editorRef.current) return;
+    normalizeEditorTables(editorRef.current);
     setContenidoEvaluador(editorRef.current.innerHTML);
+  }
+
+  function normalizeEditorTables(root: HTMLElement) {
+    root.querySelectorAll("table").forEach((table) => {
+      const htmlTable = table as HTMLTableElement;
+      if (htmlTable.classList.contains("tbl")) return;
+      htmlTable.removeAttribute("width");
+      htmlTable.querySelectorAll("colgroup,col").forEach((node) => node.remove());
+      htmlTable.style.marginLeft = "auto";
+      htmlTable.style.marginRight = "auto";
+      htmlTable.style.maxWidth = "100%";
+      htmlTable.style.width = "100%";
+      htmlTable.style.borderCollapse = "collapse";
+      htmlTable.style.tableLayout = "auto";
+      htmlTable.querySelectorAll("th,td").forEach((cell) => {
+        const htmlCell = cell as HTMLTableCellElement;
+        htmlCell.removeAttribute("width");
+        htmlCell.style.removeProperty("width");
+        htmlCell.style.removeProperty("min-width");
+        htmlCell.style.removeProperty("max-width");
+        htmlCell.style.border = htmlCell.style.border || "1px solid #222";
+        htmlCell.style.padding = htmlCell.style.padding || "2px 4px";
+        htmlCell.style.verticalAlign = htmlCell.style.verticalAlign || "top";
+        htmlCell.style.whiteSpace = "normal";
+        htmlCell.style.overflowWrap = "break-word";
+        htmlCell.style.wordBreak = "normal";
+      });
+    });
+  }
+
+  function normalizeEditorHtml(html: string) {
+    const wrapper = document.createElement("div");
+    wrapper.innerHTML = html;
+    normalizeEditorTables(wrapper);
+    return wrapper.innerHTML;
   }
 
   function resizeSelectedImage(factor: number) {
@@ -1021,6 +1098,9 @@ export default function App() {
     setIndicadoresObjetivo([{ indicador_objetivo_general: "", unidad_medida: "", meta_resultado: "" }]);
     setProductosAjustados([{ descripcion: "", unidad_medida: "", meta_programada: "", meta_alcanzada: "" }]);
     setResultadosAjustados([{ descripcion: "", unidad_medida: "", meta_programada: "", meta_alcanzada: "" }]);
+    setAnioInicioEFAjustada(null);
+    setAniosEFAjustada([]);
+    setEFAjustadaUI({});
     setMetasProyectoById({});
     setMetasPddEvaluador([]);
     setSelectedEditorImage(null);
@@ -1049,6 +1129,28 @@ export default function App() {
             ]).filter(([id]: [number, string]) => Number.isFinite(id) && id > 0)
           ) as Record<number, string>
         );
+
+        if (tipo === "viabilidad_ajustada") {
+          try {
+            const efAj = await fetchJson(`/proyecto/formulario/${rowId}/estructura-financiera-ajustada`);
+            const parsed = estructuraRowsToUI(Array.isArray(efAj?.filas) ? efAj.filas : []);
+            if (parsed.anioInicio != null) {
+              setAnioInicioEFAjustada(parsed.anioInicio);
+              setAniosEFAjustada(parsed.years.length ? parsed.years.slice(0, 4) : getEditableYears(parsed.anioInicio));
+              setEFAjustadaUI(parsed.efUI);
+            } else {
+              const efBase = estructuraRowsToUI(Array.isArray(form?.estructura_financiera) ? form.estructura_financiera : []);
+              setAnioInicioEFAjustada(efBase.anioInicio);
+              setAniosEFAjustada(efBase.years.length ? efBase.years.slice(0, 4) : getEditableYears(efBase.anioInicio));
+              setEFAjustadaUI(efBase.efUI);
+            }
+          } catch {
+            const efBase = estructuraRowsToUI(Array.isArray(form?.estructura_financiera) ? form.estructura_financiera : []);
+            setAnioInicioEFAjustada(efBase.anioInicio);
+            setAniosEFAjustada(efBase.years.length ? efBase.years.slice(0, 4) : getEditableYears(efBase.anioInicio));
+            setEFAjustadaUI(efBase.efUI);
+          }
+        }
       } catch {
         // Si falla esta carga, igual permitimos abrir el documento.
       }
@@ -1191,7 +1293,7 @@ export default function App() {
     if (!editorRef.current) return;
     setEditorFontSizePx(px);
     editorRef.current.focus();
-    document.execCommand("styleWithCSS", false, true);
+    document.execCommand("styleWithCSS", false, "true");
     document.execCommand("fontSize", false, "7");
     editorRef.current.querySelectorAll('font[size="7"]').forEach((node) => {
       const span = document.createElement("span");
@@ -1235,10 +1337,99 @@ export default function App() {
     reader.readAsDataURL(file);
   }
 
+  async function onWordSelected(file?: File) {
+    if (!file) return;
+    if (!file.name.toLowerCase().endsWith(".docx")) {
+      alert("Selecciona un archivo .docx.");
+      if (wordInputRef.current) wordInputRef.current.value = "";
+      return;
+    }
+    if (
+      editorRef.current &&
+      htmlHasUserContent(editorRef.current.innerHTML) &&
+      !window.confirm("Esto reemplazara el contenido actual del editor. ¿Continuar?")
+    ) {
+      if (wordInputRef.current) wordInputRef.current.value = "";
+      return;
+    }
+
+    setImportingWord(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const res = await fetch(`${API_BASE_DEFAULT}/descarga/evaluador/import-word`, {
+        method: "POST",
+        body: formData,
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => null);
+        throw new Error(err?.detail || "No se pudo importar el archivo Word.");
+      }
+      const data = await res.json();
+      const html = normalizeEditorHtml(String(data?.html || ""));
+      if (!htmlHasUserContent(html)) {
+        throw new Error("No se encontro contenido importable en el Word.");
+      }
+      if (editorRef.current) {
+        editorRef.current.innerHTML = html;
+      }
+      setContenidoEvaluador(html);
+      setSelectedEditorImage(null);
+    } catch (e: any) {
+      alert(e?.message || "Error importando Word.");
+    } finally {
+      setImportingWord(false);
+      if (wordInputRef.current) wordInputRef.current.value = "";
+    }
+  }
+
   function htmlHasUserContent(html: string) {
     const tmp = document.createElement("div");
     tmp.innerHTML = html;
     return (tmp.textContent || "").trim().length > 0 || tmp.querySelector("img") != null;
+  }
+
+  async function guardarEstructuraFinancieraAjustada(formId: number) {
+    if (yearsEFAjustada.length !== 4) {
+      throw new Error("Debes ingresar cuatro años válidos y sin repetir para la estructura financiera ajustada.");
+    }
+    const filas = buildEstructuraFinancieraFilas(efAjustadaUI, yearsEFAjustada);
+    const res = await fetch(`${API_BASE_DEFAULT}/proyecto/formulario/${formId}/estructura-financiera-ajustada`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ filas }),
+    });
+    if (!res.ok) {
+      const err = await res.text().catch(() => "");
+      throw new Error(err || "No se pudo guardar la estructura financiera ajustada.");
+    }
+  }
+
+  function actualizarAnioEFAjustada(index: number, value: string) {
+    const nuevoAnio = Number(value || "");
+    const valido = isValidYear(nuevoAnio);
+    const anioAnterior = aniosEFAjustada[index];
+    const siguientes = [...aniosEFAjustada];
+    siguientes[index] = valido ? nuevoAnio : 0;
+    setAniosEFAjustada(siguientes);
+    setAnioInicioEFAjustada(isValidYear(siguientes[0]) ? siguientes[0] : null);
+
+    if (!valido || !isValidYear(anioAnterior) || anioAnterior === nuevoAnio) return;
+    setEFAjustadaUI((prev) => {
+      const next = { ...prev };
+      ENTIDADES.forEach((ent) => {
+        if (ent === "DEPARTAMENTO") return;
+        const oldKey = keyFin(anioAnterior, ent);
+        const newKey = keyFin(nuevoAnio, ent);
+        if (next[oldKey] != null && next[newKey] == null) {
+          next[newKey] = next[oldKey];
+        }
+        if (!siguientes.includes(anioAnterior)) {
+          delete next[oldKey];
+        }
+      });
+      return next;
+    });
   }
 
   async function guardarRegistroEvaluador(
@@ -1264,6 +1455,10 @@ export default function App() {
         const err = await metasRes.text().catch(() => "");
         throw new Error(err || "No se pudo guardar la meta del proyecto.");
       }
+    }
+
+    if (tipo === "VIABILIDAD_AJUSTADA") {
+      await guardarEstructuraFinancieraAjustada(formId);
     }
 
     const res = await fetch(`${API_BASE_DEFAULT}/proyecto/formulario/${formId}/observaciones`, {
@@ -1296,7 +1491,11 @@ export default function App() {
 
   async function descargarPdfEvaluador() {
     if (!docEvaluador || !proyectoEvaluador) return;
-    const html = editorRef.current?.innerHTML ?? contenidoEvaluador;
+    const html = normalizeEditorHtml(editorRef.current?.innerHTML ?? contenidoEvaluador);
+    if (editorRef.current) {
+      editorRef.current.innerHTML = html;
+    }
+    setContenidoEvaluador(html);
     if (!htmlHasUserContent(html)) {
       alert("Completa el contenido antes de descargar.");
       return;
@@ -1825,6 +2024,9 @@ export default function App() {
                 setIndicadoresObjetivo([{ indicador_objetivo_general: "", unidad_medida: "", meta_resultado: "" }]);
                 setProductosAjustados([{ descripcion: "", unidad_medida: "", meta_programada: "", meta_alcanzada: "" }]);
                 setResultadosAjustados([{ descripcion: "", unidad_medida: "", meta_programada: "", meta_alcanzada: "" }]);
+                setAnioInicioEFAjustada(null);
+                setAniosEFAjustada([]);
+                setEFAjustadaUI({});
                 setFNombre("");
                 setFCodMga("");
                 setFDependencia(null);
@@ -1991,6 +2193,119 @@ export default function App() {
 
               {docEvaluador === "viabilidad_ajustada" && (
                 <div className="rounded-xl border p-3 space-y-4 bg-slate-50">
+                  <div className="space-y-3">
+                    <h3 className="font-semibold text-sm">Estructura financiera ajustada</h3>
+                    <div className="grid gap-2 md:max-w-xs">
+                      <Label>Año de inicio</Label>
+                      <Input
+                        type="number"
+                        placeholder="Ej. 2025"
+                        value={anioInicioEFAjustada ?? ""}
+                        onChange={(e) => {
+                          const y = Number(e.target.value || "");
+                          const next = isValidYear(y) ? getEditableYears(y) : [];
+                          setAnioInicioEFAjustada(isValidYear(y) ? y : null);
+                          setAniosEFAjustada(next);
+                        }}
+                      />
+                    </div>
+                    {aniosEFAjustada.length === 4 && (
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                        {aniosEFAjustada.map((anio, idx) => (
+                          <div key={`anio-aj-input-${idx}`} className="space-y-1">
+                            <Label>{`Año ${idx + 1}`}</Label>
+                            <Input
+                              type="number"
+                              value={anio || ""}
+                              onChange={(e) => actualizarAnioEFAjustada(idx, e.target.value)}
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {yearsEFAjustada.length === 4 ? (
+                      <div className="overflow-auto rounded-xl border bg-white">
+                        <table className="min-w-[720px] w-full text-sm">
+                          <thead className="bg-slate-100">
+                            <tr>
+                              <th className="px-3 py-2 text-left">Entidad</th>
+                              {yearsEFAjustada.map((y, idx) => (<th key={`y-aj-${idx}-${y}`} className="px-3 py-2 text-right">{y}</th>))}
+                              <th className="px-3 py-2 text-right">Total</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {ENTIDADES.map(ent => {
+                              const isMain = ["DEPARTAMENTO", "NACION", "MUNICIPIO", "OTROS"].includes(ent);
+                              const isSub = ent === "PROPIOS" || ent.startsWith("SGP_");
+                              return (
+                                <tr key={`aj-${ent}`} className="border-t align-top">
+                                  <td className={cx("px-3 py-2", isMain && "font-bold", isSub && "italic text-right pr-6")}>
+                                    {ent === "NACION" ? "Nación" : ent.charAt(0) + ent.slice(1).toLowerCase()}
+                                  </td>
+                                  {yearsEFAjustada.map((y, idx) => {
+                                    const k = keyFin(y, ent);
+                                    if (ent === "DEPARTAMENTO") {
+                                      const depVal = calcDepartamentoForYear(efAjustadaUI, y);
+                                      return (
+                                        <td key={`${k}-${idx}`} className="px-2 py-1">
+                                          <input
+                                            type="text"
+                                            className="w-full rounded-md border px-2 py-1 text-right bg-slate-100 text-slate-700 font-bold"
+                                            value={depVal === 0 ? "" : formatMiles(depVal)}
+                                            disabled
+                                            readOnly
+                                            title="Valor calculado: PROPIOS + todos los SGP"
+                                          />
+                                        </td>
+                                      );
+                                    }
+                                    const raw = efAjustadaUI[k] ?? "";
+                                    return (
+                                      <td key={`${k}-${idx}`} className="px-2 py-1">
+                                        <input
+                                          type="text"
+                                          inputMode="decimal"
+                                          placeholder="0"
+                                          className={cx("w-full rounded-md border px-2 py-1 text-right", isSub && "italic text-right pr-6")}
+                                          value={formatInputMiles(raw ?? "")}
+                                          onChange={(e) => {
+                                            const clean = sanitizeMoneyInput(e.target.value);
+                                            setEFAjustadaUI((p) => ({ ...p, [k]: clean }));
+                                          }}
+                                          onBlur={(e) => {
+                                            const clean = sanitizeMoneyInput(e.target.value);
+                                            setEFAjustadaUI((p) => ({ ...p, [k]: clean }));
+                                          }}
+                                        />
+                                      </td>
+                                    );
+                                  })}
+                                  <td className={cx("px-3 py-2 text-right", isMain && "font-bold", isSub && "italic")}>
+                                    {toMoney(
+                                      yearsEFAjustada.reduce((s, y) => {
+                                        if (ent === "DEPARTAMENTO") return s + calcDepartamentoForYear(efAjustadaUI, y);
+                                        return s + (parseDecimal2(efAjustadaUI[keyFin(y, ent)] ?? "") ?? 0);
+                                      }, 0)
+                                    )}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                            <tr className="border-t bg-slate-50">
+                              <td className="px-3 py-2 font-bold">Total</td>
+                              {yearsEFAjustada.map((y, idx) => (
+                                <td key={`tot-aj-${idx}-${y}`} className="px-3 py-2 text-right font-bold">{toMoney(totalesAnioEFAjustada[y] ?? 0)}</td>
+                              ))}
+                              <td className="px-3 py-2 text-right font-extrabold">{toMoney(totalEFAjustada)}</td>
+                            </tr>
+                          </tbody>
+                        </table>
+                      </div>
+                    ) : (
+                      <div className="text-sm text-slate-600">Ingresa cuatro años válidos y sin repetir para construir la tabla.</div>
+                    )}
+                  </div>
+
                   <div className="space-y-2">
                     <div className="flex items-center justify-between gap-3">
                       <h3 className="font-semibold text-sm">Productos</h3>
@@ -2193,12 +2508,28 @@ export default function App() {
                 >
                   Insertar imagen
                 </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={importingWord}
+                  onClick={() => wordInputRef.current?.click()}
+                >
+                  {importingWord ? "Importando..." : "Importar Word"}
+                </Button>
                 <input
                   ref={imageInputRef}
                   type="file"
                   accept="image/*"
                   className="hidden"
                   onChange={(e) => onImageSelected(e.target.files?.[0])}
+                />
+                <input
+                  ref={wordInputRef}
+                  type="file"
+                  accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                  className="hidden"
+                  onChange={(e) => { void onWordSelected(e.target.files?.[0]); }}
                 />
               </div>
 
@@ -2207,7 +2538,14 @@ export default function App() {
                 contentEditable
                 suppressContentEditableWarning
                 className="min-h-[420px] rounded-xl border bg-white p-4 outline-none focus:ring-2 focus:ring-slate-300 [&_img]:max-w-full [&_img]:h-auto [&_ul]:list-disc [&_ul]:pl-6 [&_ul]:my-2 [&_ol]:list-decimal [&_ol]:pl-6 [&_ol]:my-2"
-                onInput={(e) => setContenidoEvaluador((e.target as HTMLDivElement).innerHTML)}
+                onInput={(e) => {
+                  const target = e.target as HTMLDivElement;
+                  normalizeEditorTables(target);
+                  setContenidoEvaluador(target.innerHTML);
+                }}
+                onPaste={() => {
+                  window.setTimeout(() => updateEditorContentFromDom(), 0);
+                }}
                 onClick={(e) => {
                   const target = e.target as HTMLElement;
                   if (target?.tagName === "IMG") {

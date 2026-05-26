@@ -3,7 +3,7 @@ from sqlalchemy import func, cast, String
 from typing import List, Optional, Tuple
 from Backend.models import (
     LineaEstrategica, Programa, Sector, Meta,
-    Formulario, Metas, Dependencia, Politica, Categoria, Subcategoria, EstructuraFinanciera,
+    Formulario, Metas, Dependencia, Politica, Categoria, Subcategoria, EstructuraFinanciera, EstructuraFinancieraAjustada,
     VariableSectorial, VariableTecnico,
     VariablesSectorial as VariablesSectorialRel,
     VariablesTecnico as VariablesTecnicoRel,
@@ -203,6 +203,44 @@ def asignar_estructura_financiera(db: Session, form_id: int, filas) -> None:
         db.add_all(to_add)
     db.commit()
 
+
+def asignar_estructura_financiera_ajustada(db: Session, form_id: int, filas) -> None:
+    db.query(EstructuraFinancieraAjustada).filter(EstructuraFinancieraAjustada.id_formulario == form_id).delete()
+    to_add = []
+    by_year = {}
+
+    for f in filas:
+        if isinstance(f, dict):
+            anio = f.get("anio")
+            entidad = (f.get("entidad") or "").strip().upper()
+            valor = f.get("valor") or 0
+        else:
+            anio = getattr(f, "anio", None)
+            entidad = (getattr(f, "entidad", None) or "").strip().upper()
+            valor = getattr(f, "valor", None) or 0
+
+        if not anio:
+            continue
+
+        by_year.setdefault(anio, {})[entidad] = valor
+
+        if entidad != "DEPARTAMENTO":
+            to_add.append(EstructuraFinancieraAjustada(
+                id_formulario=form_id, anio=anio, entidad=entidad, valor=valor
+            ))
+
+    for anio, ents in by_year.items():
+        val_dep = sum(
+            v for k, v in ents.items() if k == "PROPIOS" or k.startswith("SGP_")
+        )
+        to_add.append(EstructuraFinancieraAjustada(
+            id_formulario=form_id, anio=anio, entidad="DEPARTAMENTO", valor=val_dep
+        ))
+
+    if to_add:
+        db.add_all(to_add)
+    db.commit()
+
 # -------------------------
 # Listar por formulario (JOIN)
 # -------------------------
@@ -276,6 +314,15 @@ def listar_estructura_financiera(db: Session, form_id: int) -> List[EstructuraFi
         db.query(EstructuraFinanciera)
         .filter(EstructuraFinanciera.id_formulario == form_id)
         .order_by(EstructuraFinanciera.anio.nullsfirst(), EstructuraFinanciera.entidad)
+        .all()
+    )
+
+
+def listar_estructura_financiera_ajustada(db: Session, form_id: int) -> List[EstructuraFinancieraAjustada]:
+    return (
+        db.query(EstructuraFinancieraAjustada)
+        .filter(EstructuraFinancieraAjustada.id_formulario == form_id)
+        .order_by(EstructuraFinancieraAjustada.anio.nullsfirst(), EstructuraFinancieraAjustada.entidad)
         .all()
     )
 

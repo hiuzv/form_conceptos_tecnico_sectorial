@@ -10,7 +10,8 @@ CREATE TEMP TABLE tmp_meta_unidad_medida (
     unidad_medida TEXT NOT NULL
 ) ON COMMIT DROP;
 
-INSERT INTO tmp_meta_unidad_medida (numero_meta, codigo_producto, codigo_indicador_producto, unidad_medida) VALUES
+INSERT INTO tmp_meta_unidad_medida (numero_meta, codigo_p
+roducto, codigo_indicador_producto, unidad_medida) VALUES
     (1, 2201006, 220100602, 'Número'),
     (2, 2201037, 220103701, 'Número'),
     (3, 2201034, 220103400, 'Número'),
