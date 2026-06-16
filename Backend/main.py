@@ -20,6 +20,7 @@ app.add_middleware(
     allow_credentials=False if allow_all else True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["Content-Disposition"],
 )
 
 Base.metadata.create_all(bind=engine)

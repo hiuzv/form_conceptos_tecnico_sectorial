@@ -683,16 +683,6 @@ _EVAL_TEMPLATE_MAP = {
 }
 
 
-def _fmt_money_eval(v: float | int | None) -> str:
-    try:
-        n = float(v or 0)
-    except Exception:
-        n = 0.0
-    if abs(n) < 0.005:
-        return ""
-    return f"{n:,.0f}".replace(",", ".")
-
-
 def _fmt_money_eval_with_decimals(v: float | int | Decimal | None) -> str:
     try:
         n = Decimal(str(v or 0)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
@@ -706,6 +696,20 @@ def _fmt_money_eval_with_decimals(v: float | int | Decimal | None) -> str:
 
     int_part, dec_part = f"{n:.2f}".split(".")
     return f"{int(int_part):,}".replace(",", ".") + f",{dec_part}"
+
+
+def _fmt_money_eval(v: float | int | Decimal | None) -> str:
+    return _fmt_money_eval_with_decimals(v)
+
+
+def _fmt_integer_eval(v: float | int | Decimal | None) -> str:
+    try:
+        n = int(Decimal(str(v or 0)).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+    except Exception:
+        n = 0
+    if n == 0:
+        return ""
+    return f"{n:,}".replace(",", ".")
 
 
 def _fmt_fecha_doc_es(d) -> str:
@@ -824,6 +828,7 @@ def _build_eval_tokens(
     )
     dependencia = str(base.get("nombre_dependencia") or "").strip()
     bpin_txt = str(base.get("bpin") or "").strip()
+    cod_id_mga_txt = str(base.get("cod_id_mga") or "").strip()
     titulo_viabilidad = "CONCEPTO DE VIABILIDAD" if bpin_txt else "CONCEPTO DE VIABILIDAD PARA CARGUE"
 
     fecha_etapa_txt = _fmt_fecha_doc_es(fecha_evaluador) if fecha_evaluador else fecha_rad_txt
@@ -842,12 +847,12 @@ def _build_eval_tokens(
         "cds": str(base.get("soportes_cds") or 0),
         "otros_adj": str(base.get("soportes_otros") or 0),
         "pb_municipios": "0",
-        "pb_personas": str(base.get("cantidad_beneficiarios") or ""),
+        "pb_personas": _fmt_integer_eval(base.get("cantidad_beneficiarios")),
         "pb_viviendas": "0",
         "pb_afro": "0",
         "pb_indigena": "0",
         "dependencia_p": dependencia,
-        "ssepi": bpin_txt or "Por definir",
+        "ssepi": bpin_txt or cod_id_mga_txt,
         "nombre": (nombre_evaluador or "").strip(),
         "cargo_evaluador": (cargo_evaluador or "").strip(),
         "dependencia": "Secretaría de Planeación",
@@ -905,7 +910,7 @@ def _inject_section_html(template_html: str, heading_text: str, content_html: st
         rf"(<th[^>]*>\s*{re.escape(heading_text)}\s*</th>\s*</tr>\s*<tr>\s*<td[^>]*>)(.*?)(</td>\s*</tr>)",
         re.IGNORECASE | re.DOTALL,
     )
-    return pattern.sub(rf"\1{content_html}\3", template_html, count=1)
+    return pattern.sub(lambda m: f"{m.group(1)}{content_html}{m.group(3)}", template_html, count=1)
 
 
 def _inject_viabilidad_checks(
@@ -939,7 +944,7 @@ def _inject_viabilidad_checks(
             rf"<tr>\s*<td[^>]*>\s*{re.escape(label)}\s*</td>.*?</tr>",
             re.IGNORECASE | re.DOTALL,
         )
-        out = pat.sub(row_html, out, count=1)
+        out = pat.sub(lambda _m: row_html, out, count=1)
     return out
 
 
@@ -967,7 +972,7 @@ def _inject_viabilidad_productos(template_html: str, metas: list[dict]) -> str:
         r"(<table\s+class=\"tbl\"[^>]*>\s*<thead>.*?CODIGO DE PRODUCTO.*?</thead>\s*<tbody>)(.*?)(</tbody>\s*</table>)",
         re.IGNORECASE | re.DOTALL,
     )
-    return pat.sub(rf"\1{rows_html}\3", template_html, count=1)
+    return pat.sub(lambda m: f"{m.group(1)}{rows_html}{m.group(3)}", template_html, count=1)
 
 
 def _inject_viabilidad_indicadores(template_html: str, indicadores: list[dict] | None) -> str:
@@ -996,7 +1001,7 @@ def _inject_viabilidad_indicadores(template_html: str, indicadores: list[dict] |
         r"(<table\s+class=\"tbl\"[^>]*>\s*<tr>\s*<th[^>]*>\s*INDICADOR OBJETIVO GENERAL\s*</th>.*?</tr>)(.*?)(</tbody>\s*</table>)",
         re.IGNORECASE | re.DOTALL,
     )
-    return pat.sub(rf"\1{rows_html}\3", template_html, count=1)
+    return pat.sub(lambda m: f"{m.group(1)}{rows_html}{m.group(3)}", template_html, count=1)
 
 
 def _inject_viabilidad_obs_meta_pdd(template_html: str, metas: list[dict]) -> str:
@@ -1018,14 +1023,14 @@ def _inject_viabilidad_obs_meta_pdd(template_html: str, metas: list[dict]) -> st
         re.IGNORECASE,
     )
     if pat.search(template_html):
-        return pat.sub(rf"\g<1>{texto_nums}\g<2>", template_html, count=1)
+        return pat.sub(lambda m: f"{m.group(1)}{texto_nums}{m.group(2)}", template_html, count=1)
 
     # Fallback: si ya existe algo despues de ":", reemplaza solo ese valor, preservando el texto del label.
     pat2 = re.compile(
         r"(<li>\s*[^<]*meta del producto:\s*)([^<]*?)(\s*</li>)",
         re.IGNORECASE,
     )
-    return pat2.sub(rf"\g<1>{texto_nums}\g<3>", template_html, count=1)
+    return pat2.sub(lambda m: f"{m.group(1)}{texto_nums}{m.group(3)}", template_html, count=1)
 
 
 def _inject_viabilidad_ajustada_productos_resultados(
@@ -1095,7 +1100,7 @@ def _inject_viabilidad_ajustada_productos_resultados(
         r"<table\s+class=\"tbl\"[^>]*>\s*<tbody>\s*<tr>\s*<th[^>]*>\s*PRODUCTOS\s*</th>.*?<th[^>]*>\s*RESULTADOS\s*</th>.*?</tbody>\s*</table>",
         re.IGNORECASE | re.DOTALL,
     )
-    return pat.sub(table_html, template_html, count=1)
+    return pat.sub(lambda _m: table_html, template_html, count=1)
 
 
 def _inject_cargo_evaluador(template_html: str, cargo: str) -> str:
@@ -1106,7 +1111,51 @@ def _inject_cargo_evaluador(template_html: str, cargo: str) -> str:
         r"(<tr>\s*<th[^>]*>\s*CARGO\s*</th>\s*<td[^>]*>)(.*?)(</td>\s*<td[^>]*>Profesional Universitario</td>\s*</tr>)",
         re.IGNORECASE | re.DOTALL,
     )
-    return pat.sub(rf"\1{cargo_txt}\3", template_html, count=1)
+    return pat.sub(lambda m: f"{m.group(1)}{cargo_txt}{m.group(3)}", template_html, count=1)
+
+
+def _safe_download_name(value: str) -> str:
+    cleaned = re.sub(r'[<>:"/\\|?*\x00-\x1f]+', " ", value or "")
+    cleaned = re.sub(r"\s+", " ", cleaned).strip().rstrip(".")
+    return cleaned or "documento"
+
+
+def _evaluador_file_name(base: dict, template_key: str) -> str:
+    tipo = {
+        "observaciones": "OBSERVACIONES",
+        "viabilidad": "VIABILIDAD",
+        "viabilidad-ajustada": "VIABILIDAD AJUSTADA",
+    }.get(template_key, "DOCUMENTO")
+    radicado = str(base.get("numero_radicacion") or base.get("cod_id_mga") or "").strip()
+    prefix = f"{radicado} " if radicado else ""
+    return f"{_safe_download_name(prefix + tipo)}.pdf"
+
+
+_DOCX_TABLE_CSS = (
+    "table.docx-table{margin-left:auto!important;margin-right:auto!important;width:100%!important;max-width:100%!important;border-collapse:collapse!important;table-layout:fixed!important;}"
+    "table.docx-table colgroup,table.docx-table col{display:none!important;}"
+    "table.docx-table th,table.docx-table td{width:auto!important;min-width:0!important;max-width:none!important;border:1px solid #222;padding:2px 3px;vertical-align:top;white-space:normal!important;overflow-wrap:anywhere!important;word-break:normal;box-sizing:border-box;}"
+    "table.docx-table p{margin:0 0 2px 0;}"
+    "table.docx-table.wide-table{font-size:9px;line-height:1.25;}"
+    "table.docx-table.xwide-table{font-size:7px;line-height:1.15;}"
+    "table.docx-table[data-cols='7'],table.docx-table[data-cols='8']{font-size:9px;line-height:1.25;}"
+    "table.docx-table[data-cols='9'],table.docx-table[data-cols='10'],table.docx-table[data-cols='11'],table.docx-table[data-cols='12']{font-size:8px;line-height:1.2;}"
+    "table.docx-table[data-cols='13'],table.docx-table[data-cols='14'],table.docx-table[data-cols='15'],table.docx-table[data-cols='16']{font-size:7px;line-height:1.15;}"
+)
+
+
+_GENERIC_IMPORTED_TABLE_CSS = (
+    "table:not(.tbl):not(.docx-table){margin-left:auto!important;margin-right:auto!important;width:100%!important;max-width:100%!important;border-collapse:collapse!important;table-layout:fixed!important;}"
+    "table:not(.tbl):not(.docx-table) colgroup,table:not(.tbl):not(.docx-table) col{display:none!important;}"
+    "table:not(.tbl):not(.docx-table) th,table:not(.tbl):not(.docx-table) td{width:auto!important;min-width:0!important;max-width:none!important;border:1px solid #222;padding:2px 4px;vertical-align:top;white-space:normal!important;overflow-wrap:anywhere!important;word-break:normal;box-sizing:border-box;}"
+)
+
+
+def _table_css(scope: str) -> str:
+    return (
+        _DOCX_TABLE_CSS.replace("table.", f"{scope} table.").replace("table:not", f"{scope} table:not")
+        + _GENERIC_IMPORTED_TABLE_CSS.replace("table:not", f"{scope} table:not")
+    )
 
 
 def _logo_data_uri(base_dir: Path) -> str:
@@ -1148,9 +1197,78 @@ def _pt(value) -> str:
         return ""
 
 
+def _style_paragraph_format(paragraph: Paragraph):
+    try:
+        return paragraph.style.paragraph_format if paragraph.style else None
+    except Exception:
+        return None
+
+
+def _style_font(paragraph: Paragraph):
+    try:
+        return paragraph.style.font if paragraph.style else None
+    except Exception:
+        return None
+
+
+def _xml_child(parent, tag: str):
+    if parent is None:
+        return None
+    return parent.find(qn(tag))
+
+
+def _xml_val(element) -> str | None:
+    if element is None:
+        return None
+    return element.get(qn("w:val"))
+
+
+def _paragraph_num_pr(paragraph: Paragraph):
+    try:
+        p_pr = paragraph._p.pPr
+        num_pr = _xml_child(p_pr, "w:numPr")
+        if num_pr is not None:
+            return num_pr
+        style_p_pr = paragraph.style.element.pPr if paragraph.style else None
+        return _xml_child(style_p_pr, "w:numPr")
+    except Exception:
+        return None
+
+
+def _paragraph_list_info(paragraph: Paragraph) -> tuple[str, int] | None:
+    num_pr = _paragraph_num_pr(paragraph)
+    if num_pr is None:
+        return None
+
+    num_id = _xml_val(_xml_child(num_pr, "w:numId"))
+    ilvl_raw = _xml_val(_xml_child(num_pr, "w:ilvl"))
+    try:
+        ilvl = int(ilvl_raw or 0)
+    except Exception:
+        ilvl = 0
+    if not num_id:
+        return None
+
+    try:
+        numbering = paragraph.part.numbering_part.element
+        num = numbering.find(f'.//{qn("w:num")}[@{qn("w:numId")}="{num_id}"]')
+        abstract_id = _xml_val(_xml_child(num, "w:abstractNumId"))
+        if abstract_id:
+            abstract = numbering.find(f'.//{qn("w:abstractNum")}[@{qn("w:abstractNumId")}="{abstract_id}"]')
+            lvl = abstract.find(f'.//{qn("w:lvl")}[@{qn("w:ilvl")}="{ilvl}"]') if abstract is not None else None
+            num_fmt = _xml_val(_xml_child(lvl, "w:numFmt"))
+            return ("ul" if num_fmt == "bullet" else "ol", ilvl)
+    except Exception:
+        pass
+    return ("ul", ilvl)
+
+
 def _paragraph_styles(paragraph: Paragraph) -> list[str]:
     styles: list[str] = []
+    style_fmt = _style_paragraph_format(paragraph)
     alignment = paragraph.alignment
+    if alignment is None and style_fmt is not None:
+        alignment = style_fmt.alignment
     if alignment == WD_ALIGN_PARAGRAPH.CENTER:
         styles.append("text-align:center")
     elif alignment == WD_ALIGN_PARAGRAPH.RIGHT:
@@ -1159,10 +1277,10 @@ def _paragraph_styles(paragraph: Paragraph) -> list[str]:
         styles.append("text-align:justify")
 
     fmt = paragraph.paragraph_format
-    left = _pt(fmt.left_indent)
-    first = _pt(fmt.first_line_indent)
-    before = _pt(fmt.space_before)
-    after = _pt(fmt.space_after)
+    left = _pt(fmt.left_indent) or (_pt(style_fmt.left_indent) if style_fmt is not None else "")
+    first = _pt(fmt.first_line_indent) or (_pt(style_fmt.first_line_indent) if style_fmt is not None else "")
+    before = _pt(fmt.space_before) or (_pt(style_fmt.space_before) if style_fmt is not None else "")
+    after = _pt(fmt.space_after) or (_pt(style_fmt.space_after) if style_fmt is not None else "")
     if left:
         styles.append(f"margin-left:{left}")
     if first:
@@ -1173,10 +1291,12 @@ def _paragraph_styles(paragraph: Paragraph) -> list[str]:
         styles.append(f"margin-bottom:{after}")
     if isinstance(fmt.line_spacing, (int, float)):
         styles.append(f"line-height:{fmt.line_spacing}")
+    elif style_fmt is not None and isinstance(style_fmt.line_spacing, (int, float)):
+        styles.append(f"line-height:{style_fmt.line_spacing}")
     return styles
 
 
-def _run_styles(run) -> list[str]:
+def _run_styles(run, paragraph: Paragraph | None = None) -> list[str]:
     styles: list[str] = []
     font = run.font
     if font.size:
@@ -1209,33 +1329,98 @@ def _run_styles(run) -> list[str]:
     return styles
 
 
-def _run_to_html(run) -> str:
-    txt = html_lib.escape(run.text or "").replace("\n", "<br>")
+def _run_image_html(run, element) -> str:
+    images: list[str] = []
+    try:
+        blips = list(element.iter(qn("a:blip")))
+    except Exception:
+        blips = []
+
+    for blip in blips:
+        rel_id = blip.get(qn("r:embed")) or blip.get(qn("r:link"))
+        if not rel_id:
+            continue
+        try:
+            image_part = run.part.related_parts[rel_id]
+            mime = getattr(image_part, "content_type", None) or "image/png"
+            encoded = base64.b64encode(image_part.blob).decode("ascii")
+        except Exception:
+            continue
+
+        style = "max-width:100%;height:auto"
+        extent = None
+        try:
+            extent = next(element.iter(qn("wp:extent")))
+        except Exception:
+            extent = None
+        if extent is not None:
+            try:
+                width_px = round(int(extent.get("cx")) / 914400 * 96)
+                if width_px > 0:
+                    style += f";width:{min(width_px, 680)}px"
+            except Exception:
+                pass
+        images.append(f'<img src="data:{mime};base64,{encoded}" style="{style}" />')
+    return "".join(images)
+
+
+def _run_content_html(run) -> str:
+    parts: list[str] = []
+    for child in run._r.iterchildren():
+        tag = child.tag
+        if tag == qn("w:t"):
+            parts.append(html_lib.escape(child.text or ""))
+        elif tag == qn("w:tab"):
+            parts.append("&emsp;")
+        elif tag == qn("w:br"):
+            parts.append("<br>")
+        elif tag == qn("w:cr"):
+            parts.append("<br>")
+        elif tag in {qn("w:drawing"), qn("w:pict")}:
+            parts.append(_run_image_html(run, child))
+    return "".join(parts)
+
+
+def _run_to_html(run, paragraph: Paragraph | None = None) -> str:
+    txt = _run_content_html(run)
     if not txt:
         return ""
 
-    if run.bold:
+    style_font = _style_font(paragraph) if paragraph is not None else None
+    bold = run.bold if run.bold is not None else (style_font.bold if style_font is not None else None)
+    italic = run.italic if run.italic is not None else (style_font.italic if style_font is not None else None)
+    underline = run.underline if run.underline is not None else (style_font.underline if style_font is not None else None)
+
+    if bold:
         txt = f"<strong>{txt}</strong>"
-    if run.italic:
+    if italic:
         txt = f"<em>{txt}</em>"
-    if run.underline:
+    if underline:
         txt = f"<u>{txt}</u>"
 
-    styles = _run_styles(run)
+    styles = _run_styles(run, paragraph)
     if styles:
         txt = f"<span{_style_attr(styles)}>{txt}</span>"
     return txt
 
 
 def _paragraph_to_html(paragraph: Paragraph) -> str:
-    text_parts = [_run_to_html(run) for run in paragraph.runs]
+    text_parts = [_run_to_html(run, paragraph) for run in paragraph.runs]
 
     content = "".join(text_parts).strip()
     if not content:
         return ""
 
     style_name = (paragraph.style.name if paragraph.style else "").lower()
-    p_style = _style_attr(_paragraph_styles(paragraph))
+    list_info = _paragraph_list_info(paragraph)
+    paragraph_styles = _paragraph_styles(paragraph)
+    if list_info is not None:
+        tag, level = list_info
+        if level > 0 and not any(s.startswith("margin-left:") for s in paragraph_styles):
+            paragraph_styles.append(f"margin-left:{level * 24}px")
+        return f"<{tag}><li{_style_attr(paragraph_styles)}>{content}</li></{tag}>"
+
+    p_style = _style_attr(paragraph_styles)
     if "heading 1" in style_name or "título 1" in style_name or "titulo 1" in style_name:
         return f"<h3{p_style}>{content}</h3>"
     if "heading" in style_name or "título" in style_name or "titulo" in style_name:
@@ -1286,9 +1471,11 @@ def _cell_to_html(cell: _Cell) -> str:
 
 def _table_to_html(table: Table) -> str:
     rows_html: list[str] = []
+    max_cols = 0
     for row in table.rows:
         cells_html: list[str] = []
         cells = list(row.cells)
+        visual_cols = 0
         i = 0
         while i < len(cells):
             cell = cells[i]
@@ -1296,18 +1483,27 @@ def _table_to_html(table: Table) -> str:
             colspan = 1
             while i + colspan < len(cells) and cells[i + colspan]._tc is tc:
                 colspan += 1
+            visual_cols += colspan
             colspan_attr = f' colspan="{colspan}"' if colspan > 1 else ""
             cells_html.append(f"<td{colspan_attr}{_style_attr(_cell_styles(cell))}>{_cell_to_html(cell)}</td>")
             i += colspan
         if cells_html:
+            max_cols = max(max_cols, visual_cols)
             rows_html.append(f"<tr>{''.join(cells_html)}</tr>")
 
     if not rows_html:
         return ""
 
+    table_classes = ["docx-table"]
+    if max_cols >= 13:
+        table_classes.append("xwide-table")
+    elif max_cols >= 7:
+        table_classes.append("wide-table")
+
     return (
-        '<table border="0" cellpadding="2" cellspacing="0" '
-        'style="width:100%;max-width:100%;border-collapse:collapse;table-layout:auto;margin-left:auto;margin-right:auto">'
+        f'<table class="{" ".join(table_classes)}" border="0" cellpadding="2" cellspacing="0" '
+        f'data-cols="{max_cols}" '
+        'style="width:100%;max-width:100%;border-collapse:collapse;table-layout:fixed;margin-left:auto;margin-right:auto">'
         f"<tbody>{''.join(rows_html)}</tbody>"
         "</table>"
     )
@@ -1412,9 +1608,7 @@ def render_evaluador_template_html(
         ".doc-header{text-align:center;margin:0;line-height:1;}"
         ".doc-header img{width:120px;max-width:30vw;height:auto;display:inline-block;}"
         ".doc-content{display:block;}"
-        ".doc-content table:not(.tbl){margin-left:auto!important;margin-right:auto!important;width:100%!important;max-width:100%!important;border-collapse:collapse!important;table-layout:auto!important;}"
-        ".doc-content table:not(.tbl) colgroup,.doc-content table:not(.tbl) col{display:none!important;}"
-        ".doc-content table:not(.tbl) th,.doc-content table:not(.tbl) td{width:auto!important;min-width:0!important;max-width:none!important;border:1px solid #222;padding:2px 4px;vertical-align:top;white-space:normal!important;overflow-wrap:break-word;word-break:normal;}"
+        f"{_table_css('.doc-content')}"
         ".doc-footer{text-align:center;font-size:11px;line-height:1.35;margin:0;page-break-inside:avoid;}"
         ".doc-footer .nota{font-weight:700;}"
         "@media print{"
@@ -1499,13 +1693,7 @@ def _render_evaluador_filled_content(
         )
     filled = _inject_cargo_evaluador(filled, cargo_evaluador or "")
 
-    file_name = (
-        "observaciones.pdf"
-        if template_key == "observaciones"
-        else "viabilidad_ajustada.pdf"
-        if template_key == "viabilidad-ajustada"
-        else "viabilidad.pdf"
-    )
+    file_name = _evaluador_file_name(base, template_key)
     return filled, file_name, base_dir
 
 
@@ -1559,9 +1747,7 @@ def render_evaluador_template_pdf(
         "<!doctype html><html><head><meta charset='utf-8'/>"
         "<style>"
         "@page{size:A4;} body{margin:0;padding:0;} .doc{max-width:730px;margin:0 auto;}"
-        ".doc table:not(.tbl){margin-left:auto!important;margin-right:auto!important;width:100%!important;max-width:100%!important;border-collapse:collapse!important;table-layout:auto!important;}"
-        ".doc table:not(.tbl) colgroup,.doc table:not(.tbl) col{display:none!important;}"
-        ".doc table:not(.tbl) th,.doc table:not(.tbl) td{width:auto!important;min-width:0!important;max-width:none!important;border:1px solid #222;padding:2px 4px;vertical-align:top;white-space:normal!important;overflow-wrap:break-word;word-break:normal;}"
+        f"{_table_css('.doc')}"
         "</style>"
         "</head><body>"
         f"<div class='doc'>{filled}</div>"
@@ -1639,9 +1825,7 @@ async def render_evaluador_template_pdf_async(
         "<!doctype html><html><head><meta charset='utf-8'/>"
         "<style>"
         "@page{size:A4;} body{margin:0;padding:0;} .doc{max-width:730px;margin:0 auto;}"
-        ".doc table:not(.tbl){margin-left:auto!important;margin-right:auto!important;width:100%!important;max-width:100%!important;border-collapse:collapse!important;table-layout:auto!important;}"
-        ".doc table:not(.tbl) colgroup,.doc table:not(.tbl) col{display:none!important;}"
-        ".doc table:not(.tbl) th,.doc table:not(.tbl) td{width:auto!important;min-width:0!important;max-width:none!important;border:1px solid #222;padding:2px 4px;vertical-align:top;white-space:normal!important;overflow-wrap:break-word;word-break:normal;}"
+        f"{_table_css('.doc')}"
         "</style>"
         "</head><body>"
         f"<div class='doc'>{filled}</div>"

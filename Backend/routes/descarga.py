@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel, Field
 from Backend.utils.database import SessionLocal
 from Backend.services import descarga_service
+from urllib.parse import quote
 
 router = APIRouter(prefix="/descarga", tags=["descarga"])
 
@@ -212,5 +213,5 @@ async def render_pdf_evaluador(doc_key: str, form_id: int, body: EvaluadorTempla
     return StreamingResponse(
         bio,
         media_type="application/pdf",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        headers={"Content-Disposition": f"attachment; filename=\"{filename}\"; filename*=UTF-8''{quote(filename)}"},
     )

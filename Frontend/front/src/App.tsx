@@ -305,6 +305,22 @@ function todayISODate(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
+function filenameFromContentDisposition(header: string | null): string | null {
+  if (!header) return null;
+  const utf8Match = header.match(/filename\*=UTF-8''([^;]+)/i);
+  if (utf8Match?.[1]) {
+    try {
+      return decodeURIComponent(utf8Match[1].trim());
+    } catch {
+      return utf8Match[1].trim();
+    }
+  }
+  const quotedMatch = header.match(/filename="([^"]+)"/i);
+  if (quotedMatch?.[1]) return quotedMatch[1].trim();
+  const plainMatch = header.match(/filename=([^;]+)/i);
+  return plainMatch?.[1]?.trim() || null;
+}
+
 /* ========== Componente principal ========== */
 export default function App() {
   const [vista, setVista] = useState<"home" | "lista" | "form" | "evaluador_doc">("home");
@@ -333,11 +349,13 @@ export default function App() {
   const [metasProyectoById, setMetasProyectoById] = useState<Record<number, string>>({});
   const [metasPddEvaluador, setMetasPddEvaluador] = useState<MetaPddEvaluadorItem[]>([]);
   const [editorFontSizePx, setEditorFontSizePx] = useState("14");
+  const [editorFontFamily, setEditorFontFamily] = useState("Arial");
   const [importingWord, setImportingWord] = useState(false);
   const editorRef = useRef<HTMLDivElement | null>(null);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
   const wordInputRef = useRef<HTMLInputElement | null>(null);
   const selectedImageRef = useRef<HTMLImageElement | null>(null);
+  const savedEditorRangeRef = useRef<Range | null>(null);
   const [openRadicacion, setOpenRadicacion] = useState(false);
   const [radicacionLoading, setRadicacionLoading] = useState(false);
   const [radicacionSaving, setRadicacionSaving] = useState(false);
@@ -1023,6 +1041,16 @@ export default function App() {
     root.querySelectorAll("table").forEach((table) => {
       const htmlTable = table as HTMLTableElement;
       if (htmlTable.classList.contains("tbl")) return;
+      htmlTable.classList.add("docx-table");
+      const colCount = Array.from(htmlTable.rows).reduce((max, row) => {
+        const count = Array.from(row.cells).reduce((sum, cell) => sum + Math.max(1, cell.colSpan || 1), 0);
+        return Math.max(max, count);
+      }, 0);
+      if (colCount > 0) {
+        htmlTable.dataset.cols = String(colCount);
+      }
+      htmlTable.classList.toggle("wide-table", colCount >= 7 && colCount < 13);
+      htmlTable.classList.toggle("xwide-table", colCount >= 13);
       htmlTable.removeAttribute("width");
       htmlTable.querySelectorAll("colgroup,col").forEach((node) => node.remove());
       htmlTable.style.marginLeft = "auto";
@@ -1030,7 +1058,17 @@ export default function App() {
       htmlTable.style.maxWidth = "100%";
       htmlTable.style.width = "100%";
       htmlTable.style.borderCollapse = "collapse";
-      htmlTable.style.tableLayout = "auto";
+      htmlTable.style.tableLayout = "fixed";
+      if (colCount >= 13) {
+        htmlTable.style.fontSize = "7px";
+        htmlTable.style.lineHeight = "1.15";
+      } else if (colCount >= 9) {
+        htmlTable.style.fontSize = "8px";
+        htmlTable.style.lineHeight = "1.2";
+      } else if (colCount >= 7) {
+        htmlTable.style.fontSize = "9px";
+        htmlTable.style.lineHeight = "1.25";
+      }
       htmlTable.querySelectorAll("th,td").forEach((cell) => {
         const htmlCell = cell as HTMLTableCellElement;
         htmlCell.removeAttribute("width");
@@ -1041,8 +1079,9 @@ export default function App() {
         htmlCell.style.padding = htmlCell.style.padding || "2px 4px";
         htmlCell.style.verticalAlign = htmlCell.style.verticalAlign || "top";
         htmlCell.style.whiteSpace = "normal";
-        htmlCell.style.overflowWrap = "break-word";
+        htmlCell.style.overflowWrap = "anywhere";
         htmlCell.style.wordBreak = "normal";
+        htmlCell.style.boxSizing = "border-box";
       });
     });
   }
@@ -1296,19 +1335,88 @@ export default function App() {
     setContenidoEvaluador(editorRef.current.innerHTML);
   }
 
+  function saveEditorSelection() {
+    const editor = editorRef.current;
+    const selection = window.getSelection();
+    if (!editor || !selection || selection.rangeCount === 0) return;
+    const range = selection.getRangeAt(0);
+    const node = range.commonAncestorContainer;
+    const owner = node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement;
+    if (owner && editor.contains(owner)) {
+      savedEditorRangeRef.current = range.cloneRange();
+    }
+  }
+
+  function restoreEditorSelection() {
+    const editor = editorRef.current;
+    const range = savedEditorRangeRef.current;
+    if (!editor || !range) return;
+    const node = range.commonAncestorContainer;
+    const owner = node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement;
+    if (!owner || !editor.contains(owner)) return;
+    const selection = window.getSelection();
+    if (!selection) return;
+    selection.removeAllRanges();
+    selection.addRange(range);
+  }
+
+  function applyEditorInlineStyle(styles: Partial<CSSStyleDeclaration>) {
+    const editor = editorRef.current;
+    if (!editor) return false;
+
+    editor.focus();
+    restoreEditorSelection();
+    const selection = window.getSelection();
+    if (!selection || selection.rangeCount === 0) return false;
+
+    const range = selection.getRangeAt(0);
+    const container = range.commonAncestorContainer;
+    const owner = container.nodeType === Node.ELEMENT_NODE ? container : container.parentElement;
+    if (!owner || !editor.contains(owner)) {
+      return false;
+    }
+
+    const span = document.createElement("span");
+    Object.entries(styles).forEach(([key, value]) => {
+      if (value != null && value !== "") {
+        span.style[key as any] = String(value);
+      }
+    });
+
+    if (range.collapsed) {
+      span.appendChild(document.createTextNode("\u200b"));
+      range.insertNode(span);
+      const nextRange = document.createRange();
+      nextRange.setStart(span.firstChild ?? span, 1);
+      nextRange.collapse(true);
+      selection.removeAllRanges();
+      selection.addRange(nextRange);
+    } else {
+      span.appendChild(range.extractContents());
+      range.insertNode(span);
+      selection.removeAllRanges();
+      const nextRange = document.createRange();
+      nextRange.selectNodeContents(span);
+      nextRange.collapse(false);
+      selection.addRange(nextRange);
+    }
+
+    setContenidoEvaluador(editor.innerHTML);
+    saveEditorSelection();
+    return true;
+  }
+
   function applyEditorFontSize(px: string) {
     if (!editorRef.current) return;
     setEditorFontSizePx(px);
-    editorRef.current.focus();
-    document.execCommand("styleWithCSS", false, "true");
-    document.execCommand("fontSize", false, "7");
-    editorRef.current.querySelectorAll('font[size="7"]').forEach((node) => {
-      const span = document.createElement("span");
-      span.style.fontSize = `${px}px`;
-      span.innerHTML = node.innerHTML;
-      node.replaceWith(span);
-    });
-    setContenidoEvaluador(editorRef.current.innerHTML);
+    applyEditorInlineStyle({ fontSize: `${px}px` });
+  }
+
+  function applyEditorFontFamily(fontFamily: string) {
+    if (!editorRef.current) return;
+    const family = fontFamily === "Calibri" ? "Calibri, Arial, sans-serif" : "Arial, sans-serif";
+    setEditorFontFamily(fontFamily);
+    applyEditorInlineStyle({ fontFamily: family });
   }
 
   function applyBulletList() {
@@ -1595,12 +1703,13 @@ export default function App() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download =
+    const fallbackFilename =
       docKey === "viabilidad"
-        ? "viabilidad.pdf"
+        ? "VIABILIDAD.pdf"
         : docKey === "viabilidad-ajustada"
-          ? "viabilidad_ajustada.pdf"
-          : "observaciones.pdf";
+          ? "VIABILIDAD AJUSTADA.pdf"
+          : "OBSERVACIONES.pdf";
+    a.download = filenameFromContentDisposition(res.headers.get("Content-Disposition")) || fallbackFilename;
     document.body.appendChild(a);
     a.click();
     a.remove();
@@ -2510,6 +2619,15 @@ export default function App() {
                 <Button type="button" variant="outline" size="sm" onClick={() => applyEditorCommand("underline")}>Subrayado</Button>
                 <select
                   className="h-9 rounded-md border bg-white px-2 text-sm"
+                  value={editorFontFamily}
+                  onChange={(e) => applyEditorFontFamily(e.target.value)}
+                  title="Tipo de letra"
+                >
+                  <option value="Arial">Arial</option>
+                  <option value="Calibri">Calibri</option>
+                </select>
+                <select
+                  className="h-9 rounded-md border bg-white px-2 text-sm"
                   value={editorFontSizePx}
                   onChange={(e) => applyEditorFontSize(e.target.value)}
                   title="Tamaño de letra"
@@ -2568,7 +2686,10 @@ export default function App() {
                   const target = e.target as HTMLDivElement;
                   normalizeEditorTables(target);
                   setContenidoEvaluador(target.innerHTML);
+                  saveEditorSelection();
                 }}
+                onMouseUp={saveEditorSelection}
+                onKeyUp={saveEditorSelection}
                 onPaste={() => {
                   window.setTimeout(() => updateEditorContentFromDom(), 0);
                 }}
