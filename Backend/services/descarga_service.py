@@ -29,7 +29,7 @@ from Backend.models import (
     Categorias as CategoriasRel,
     Subcategorias as SubcategoriasRel,
     EstructuraFinanciera, EstructuraFinancieraAjustada, Politica, Categoria, Subcategoria, PeriodoLema,
-    Viabilidad, Viabilidades, FuncionarioViabilidad
+    Viabilidad, Viabilidades, FuncionarioViabilidad, ObservacionEvaluacion
 )
 from Backend.services.excel_fill import fill_from_template, fill_viabilidad_dependencias, fill_cadena_valor
 from Backend.services.word_fill import fill_docx
@@ -768,16 +768,12 @@ def _build_eval_tokens(
     cargo_evaluador: str = "",
     fecha_evaluador: str | None = None,
     template_key: str | None = None,
+    numero_documento: str | None = None,
 ) -> dict[str, str]:
     ef_base = base.get("estructura_financiera", []) or []
     ef_adj = base.get("estructura_financiera_ajustada", []) or []
-    if template_key in {"viabilidad_ajustada", "viabilidad-ajustada"} and ef_adj:
-        years_source = ef_adj
-    else:
-        years_source = ef_base if ef_base else ef_adj
-    years, _ = _years_and_lookup(years_source)
-    _, lookup_base = _years_and_lookup(ef_base)
-    _, lookup_adj = _years_and_lookup(ef_adj if ef_adj else ef_base)
+    years_base, lookup_base = _years_and_lookup(ef_base if ef_base else ef_adj)
+    years_adj, lookup_adj = _years_and_lookup(ef_adj if ef_adj else ef_base)
     if not ef_base:
         lookup_base = lookup_adj
     sgp_keys = [
@@ -795,19 +791,19 @@ def _build_eval_tokens(
         return float(src.get((y, ent), 0.0))
 
     # Estructura financiera base (no ajustada)
-    nacion = [get_val(lookup_base, y, "NACION") for y in years]
-    depto = [get_val(lookup_base, y, "DEPARTAMENTO") for y in years]
-    muni = [get_val(lookup_base, y, "MUNICIPIO") for y in years]
-    otros = [get_val(lookup_base, y, "OTROS") for y in years]
-    sgp = [sum(get_val(lookup_base, y, key) for key in sgp_keys) for y in years]
+    nacion = [get_val(lookup_base, y, "NACION") for y in years_base]
+    depto = [get_val(lookup_base, y, "DEPARTAMENTO") for y in years_base]
+    muni = [get_val(lookup_base, y, "MUNICIPIO") for y in years_base]
+    otros = [get_val(lookup_base, y, "OTROS") for y in years_base]
+    sgp = [sum(get_val(lookup_base, y, key) for key in sgp_keys) for y in years_base]
     subtotal = [nacion[i] + depto[i] + muni[i] + otros[i] for i in range(4)]
 
     # Estructura financiera ajustada (tabla adicional del evaluador)
-    propios_adj = [get_val(lookup_adj, y, "PROPIOS") for y in years]
-    sgp_adj = [sum(get_val(lookup_adj, y, key) for key in sgp_keys) for y in years]
-    nacion_adj = [get_val(lookup_adj, y, "NACION") for y in years]
-    muni_adj = [get_val(lookup_adj, y, "MUNICIPIO") for y in years]
-    otros_adj = [get_val(lookup_adj, y, "OTROS") for y in years]
+    propios_adj = [get_val(lookup_adj, y, "PROPIOS") for y in years_adj]
+    sgp_adj = [sum(get_val(lookup_adj, y, key) for key in sgp_keys) for y in years_adj]
+    nacion_adj = [get_val(lookup_adj, y, "NACION") for y in years_adj]
+    muni_adj = [get_val(lookup_adj, y, "MUNICIPIO") for y in years_adj]
+    otros_adj = [get_val(lookup_adj, y, "OTROS") for y in years_adj]
     subtotal_ajustado = [
         propios_adj[i] + sgp_adj[i] + nacion_adj[i] + muni_adj[i] + otros_adj[i]
         for i in range(4)
@@ -855,11 +851,16 @@ def _build_eval_tokens(
         "ssepi": bpin_txt or cod_id_mga_txt,
         "nombre": (nombre_evaluador or "").strip(),
         "cargo_evaluador": (cargo_evaluador or "").strip(),
+        "numero_documento": str(numero_documento or "").strip(),
         "dependencia": "Secretaría de Planeación",
-        "anio_eval1": str(years[0]),
-        "anio_eval2": str(years[1]),
-        "anio_eval3": str(years[2]),
-        "anio_eval4": str(years[3]),
+        "anio_eval1": str(years_base[0]),
+        "anio_eval2": str(years_base[1]),
+        "anio_eval3": str(years_base[2]),
+        "anio_eval4": str(years_base[3]),
+        "anio_adj1": str(years_adj[0]),
+        "anio_adj2": str(years_adj[1]),
+        "anio_adj3": str(years_adj[2]),
+        "anio_adj4": str(years_adj[3]),
     }
 
     for i in range(4):
@@ -1573,6 +1574,7 @@ def render_evaluador_template_html(
     nombre_evaluador: str,
     cargo_evaluador: str | None = None,
     fecha_evaluador: str | None = None,
+    numero_documento: str | None = None,
     indicadores_objetivo: list[dict] | None = None,
     productos_ajustados: list[dict] | None = None,
     resultados_ajustados: list[dict] | None = None,
@@ -1588,6 +1590,7 @@ def render_evaluador_template_html(
         nombre_evaluador=nombre_evaluador,
         cargo_evaluador=cargo_evaluador,
         fecha_evaluador=fecha_evaluador,
+        numero_documento=numero_documento,
         indicadores_objetivo=indicadores_objetivo,
         productos_ajustados=productos_ajustados,
         resultados_ajustados=resultados_ajustados,
@@ -1641,6 +1644,7 @@ def _render_evaluador_filled_content(
     nombre_evaluador: str,
     cargo_evaluador: str | None = None,
     fecha_evaluador: str | None = None,
+    numero_documento: str | None = None,
     indicadores_objetivo: list[dict] | None = None,
     productos_ajustados: list[dict] | None = None,
     resultados_ajustados: list[dict] | None = None,
@@ -1663,6 +1667,7 @@ def _render_evaluador_filled_content(
         cargo_evaluador or "",
         fecha_evaluador=fecha_evaluador,
         template_key=template_key,
+        numero_documento=numero_documento,
     )
     raw = template_path.read_text(encoding="utf-8", errors="ignore")
     filled = _replace_tokens_in_html(raw, tokens)
@@ -1705,6 +1710,7 @@ def render_evaluador_template_pdf(
     nombre_evaluador: str,
     cargo_evaluador: str | None = None,
     fecha_evaluador: str | None = None,
+    numero_documento: str | None = None,
     indicadores_objetivo: list[dict] | None = None,
     productos_ajustados: list[dict] | None = None,
     resultados_ajustados: list[dict] | None = None,
@@ -1720,6 +1726,7 @@ def render_evaluador_template_pdf(
         nombre_evaluador=nombre_evaluador,
         cargo_evaluador=cargo_evaluador,
         fecha_evaluador=fecha_evaluador,
+        numero_documento=numero_documento,
         indicadores_objetivo=indicadores_objetivo,
         productos_ajustados=productos_ajustados,
         resultados_ajustados=resultados_ajustados,
@@ -1789,6 +1796,7 @@ async def render_evaluador_template_pdf_async(
     nombre_evaluador: str,
     cargo_evaluador: str | None = None,
     fecha_evaluador: str | None = None,
+    numero_documento: str | None = None,
     indicadores_objetivo: list[dict] | None = None,
     productos_ajustados: list[dict] | None = None,
     resultados_ajustados: list[dict] | None = None,
@@ -1804,6 +1812,7 @@ async def render_evaluador_template_pdf_async(
         nombre_evaluador=nombre_evaluador,
         cargo_evaluador=cargo_evaluador,
         fecha_evaluador=fecha_evaluador,
+        numero_documento=numero_documento,
         indicadores_objetivo=indicadores_objetivo,
         productos_ajustados=productos_ajustados,
         resultados_ajustados=resultados_ajustados,
@@ -1845,6 +1854,55 @@ async def render_evaluador_template_pdf_async(
     bio = BytesIO(pdf_bytes)
     bio.seek(0)
     return bio, file_name
+
+
+async def render_evaluador_historico_pdf_async(
+    db: Session,
+    observacion_id: int,
+) -> tuple[BytesIO, str]:
+    row = (
+        db.query(ObservacionEvaluacion)
+        .filter(ObservacionEvaluacion.id == observacion_id)
+        .one_or_none()
+    )
+    if not row:
+        raise ValueError("Registro historico no encontrado")
+
+    if getattr(row, "pdf_bytes", None):
+        bio = BytesIO(bytes(row.pdf_bytes))
+        bio.seek(0)
+        return bio, row.pdf_filename or _evaluador_file_name(_fetch_base_context(db, int(row.id_formulario)), {
+            "OBSERVACIONES": "observaciones",
+            "VIABILIDAD": "viabilidad",
+            "VIABILIDAD_AJUSTADA": "viabilidad-ajustada",
+        }.get((row.tipo_documento or "").strip().upper(), "observaciones"))
+    raise ValueError("Este registro historico no tiene PDF guardado")
+
+
+def guardar_pdf_historico(
+    db: Session,
+    observacion_id: int,
+    form_id: int,
+    pdf_bytes: bytes,
+    filename: str,
+) -> None:
+    row = (
+        db.query(ObservacionEvaluacion)
+        .filter(
+            ObservacionEvaluacion.id == observacion_id,
+            ObservacionEvaluacion.id_formulario == form_id,
+        )
+        .one_or_none()
+    )
+    if not row:
+        raise ValueError("Registro historico no encontrado para guardar PDF")
+    if not pdf_bytes:
+        raise ValueError("PDF historico vacio")
+
+    row.pdf_bytes = pdf_bytes
+    row.pdf_filename = filename
+    row.pdf_content_type = "application/pdf"
+    db.commit()
 
 
 def _generate_pdf_sync_playwright(html: str, header_logo: str, footer_html: str) -> bytes:

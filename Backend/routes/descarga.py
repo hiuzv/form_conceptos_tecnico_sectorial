@@ -1,5 +1,5 @@
 # Backend/routes/descarga.py
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, Field
@@ -34,6 +34,8 @@ class EvaluadorTemplateIn(BaseModel):
     nombre_evaluador: str
     cargo_evaluador: str | None = None
     fecha_evaluador: str | None = None
+    observacion_id: int | None = None
+    numero_documento: str | None = None
     indicadores_objetivo: list[IndicadorObjetivoIn] = Field(default_factory=list)
     productos_ajustados: list[MedicionAjustadaIn] = Field(default_factory=list)
     resultados_ajustados: list[MedicionAjustadaIn] = Field(default_factory=list)
@@ -172,6 +174,7 @@ def render_template_evaluador(doc_key: str, form_id: int, body: EvaluadorTemplat
             nombre_evaluador=body.nombre_evaluador,
             cargo_evaluador=body.cargo_evaluador,
             fecha_evaluador=body.fecha_evaluador,
+            numero_documento=body.numero_documento,
             indicadores_objetivo=[x.model_dump() for x in body.indicadores_objetivo],
             productos_ajustados=[x.model_dump() for x in body.productos_ajustados],
             resultados_ajustados=[x.model_dump() for x in body.resultados_ajustados],
@@ -198,6 +201,7 @@ async def render_pdf_evaluador(doc_key: str, form_id: int, body: EvaluadorTempla
             nombre_evaluador=body.nombre_evaluador,
             cargo_evaluador=body.cargo_evaluador,
             fecha_evaluador=body.fecha_evaluador,
+            numero_documento=body.numero_documento,
             indicadores_objetivo=[x.model_dump() for x in body.indicadores_objetivo],
             productos_ajustados=[x.model_dump() for x in body.productos_ajustados],
             resultados_ajustados=[x.model_dump() for x in body.resultados_ajustados],
@@ -210,8 +214,49 @@ async def render_pdf_evaluador(doc_key: str, form_id: int, body: EvaluadorTempla
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error generando PDF: {repr(e)}")
 
+    if body.observacion_id:
+        try:
+            descarga_service.guardar_pdf_historico(
+                db=db,
+                observacion_id=body.observacion_id,
+                form_id=form_id,
+                pdf_bytes=bio.getvalue(),
+                filename=filename,
+            )
+            bio.seek(0)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Error guardando PDF historico: {repr(e)}")
+
     return StreamingResponse(
         bio,
         media_type="application/pdf",
         headers={"Content-Disposition": f"attachment; filename=\"{filename}\"; filename*=UTF-8''{quote(filename)}"},
+    )
+
+
+@router.get("/evaluador/historial/pdf/{observacion_id}")
+@router.get("/evaluador/historial/pdf/{observacion_id}/{_filename}")
+async def render_pdf_evaluador_historico(
+    observacion_id: int,
+    _filename: str | None = None,
+    inline: bool = Query(False),
+    db: Session = Depends(get_db),
+):
+    try:
+        bio, filename = await descarga_service.render_evaluador_historico_pdf_async(
+            db=db,
+            observacion_id=observacion_id,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error generando PDF historico: {repr(e)}")
+
+    disposition = "inline" if inline else "attachment"
+    return StreamingResponse(
+        bio,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f"{disposition}; filename=\"{filename}\"; filename*=UTF-8''{quote(filename)}"},
     )

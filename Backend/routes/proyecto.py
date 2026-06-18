@@ -22,6 +22,7 @@ def _map_observacion_evaluacion(row) -> schemas.ObservacionEvaluacionRead:
         contenido_html=row.contenido_html,
         nombre_evaluador=row.nombre_evaluador,
         cargo_evaluador=row.cargo_evaluador,
+        numero_documento=row.numero_documento,
         indicadores_objetivo=[
             schemas.IndicadorObjetivoEvaluacionIn(
                 indicador_objetivo_general=getattr(it, "indicador_objetivo_general", "") or "",
@@ -30,9 +31,21 @@ def _map_observacion_evaluacion(row) -> schemas.ObservacionEvaluacionRead:
             )
             for it in (getattr(row, "indicadores_objetivo", None) or [])
         ],
+        productos_ajustados=[
+            schemas.MedicionAjustadaEvaluacionIn(**it)
+            for it in (getattr(row, "productos_ajustados", None) or [])
+            if isinstance(it, dict)
+        ],
+        resultados_ajustados=[
+            schemas.MedicionAjustadaEvaluacionIn(**it)
+            for it in (getattr(row, "resultados_ajustados", None) or [])
+            if isinstance(it, dict)
+        ],
         concepto_tecnico_favorable_dep=row.concepto_tecnico_favorable_dep,
         concepto_sectorial_favorable_dep=row.concepto_sectorial_favorable_dep,
         proyecto_viable_dep=row.proyecto_viable_dep,
+        pdf_disponible=bool(getattr(row, "pdf_bytes", None)),
+        pdf_filename=getattr(row, "pdf_filename", None),
         created_at=row.created_at,
     )
 
@@ -415,7 +428,10 @@ def crear_observacion(form_id: int, body: schemas.ObservacionEvaluacionCreate, d
             contenido_html=body.contenido_html,
             nombre_evaluador=body.nombre_evaluador,
             cargo_evaluador=body.cargo_evaluador,
+            numero_documento=body.numero_documento,
             indicadores_objetivo=[x.model_dump() for x in (body.indicadores_objetivo or [])],
+            productos_ajustados=[x.model_dump() for x in (body.productos_ajustados or [])],
+            resultados_ajustados=[x.model_dump() for x in (body.resultados_ajustados or [])],
             concepto_tecnico_favorable_dep=body.concepto_tecnico_favorable_dep,
             concepto_sectorial_favorable_dep=body.concepto_sectorial_favorable_dep,
             proyecto_viable_dep=body.proyecto_viable_dep,

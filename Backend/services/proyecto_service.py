@@ -568,7 +568,10 @@ def crear_observacion_evaluacion(
     contenido_html: str,
     nombre_evaluador: str,
     cargo_evaluador: str | None = None,
+    numero_documento: str | None = None,
     indicadores_objetivo: list[dict] | None = None,
+    productos_ajustados: list[dict] | None = None,
+    resultados_ajustados: list[dict] | None = None,
     concepto_tecnico_favorable_dep: str | None = None,
     concepto_sectorial_favorable_dep: str | None = None,
     proyecto_viable_dep: str | None = None,
@@ -601,15 +604,33 @@ def crear_observacion_evaluacion(
     chk_sec = _norm_check(concepto_sectorial_favorable_dep)
     chk_via = _norm_check(proyecto_viable_dep)
 
+    def _clean_mediciones(items: list[dict] | None) -> list[dict]:
+        rows: list[dict] = []
+        for it in items or []:
+            if not isinstance(it, dict):
+                continue
+            row_data = {
+                "descripcion": str(it.get("descripcion") or "").strip(),
+                "unidad_medida": str(it.get("unidad_medida") or "").strip(),
+                "meta_programada": str(it.get("meta_programada") or "").strip(),
+                "meta_alcanzada": str(it.get("meta_alcanzada") or "").strip(),
+            }
+            if any(row_data.values()):
+                rows.append(row_data)
+        return rows
+
     row = ObservacionEvaluacion(
         id_formulario=form_id,
         tipo_documento=tipo,
         contenido_html=contenido,
         nombre_evaluador=evaluador,
         cargo_evaluador=cargo_eval,
+        numero_documento=(numero_documento or "").strip() or None,
         concepto_tecnico_favorable_dep=chk_tec,
         concepto_sectorial_favorable_dep=chk_sec,
         proyecto_viable_dep=chk_via,
+        productos_ajustados=_clean_mediciones(productos_ajustados),
+        resultados_ajustados=_clean_mediciones(resultados_ajustados),
     )
     db.add(row)
     db.flush()

@@ -229,6 +229,8 @@ interface ProyectoEvaluador {
   nombre: string;
   codMGA: string;
   dependencia: string;
+  radicado?: string;
+  bpin?: string;
 }
 
 interface ObservacionEvaluacionItem {
@@ -238,10 +240,15 @@ interface ObservacionEvaluacionItem {
   contenido_html: string;
   nombre_evaluador: string;
   cargo_evaluador?: string | null;
+  numero_documento?: string | null;
   indicadores_objetivo?: IndicadorObjetivoItem[];
+  productos_ajustados?: MedicionAjustadaItem[];
+  resultados_ajustados?: MedicionAjustadaItem[];
   concepto_tecnico_favorable_dep?: "SI" | "NO" | null;
   concepto_sectorial_favorable_dep?: "SI" | "NO" | null;
   proyecto_viable_dep?: "SI" | "NO" | null;
+  pdf_disponible?: boolean;
+  pdf_filename?: string | null;
   created_at: string;
 }
 
@@ -323,13 +330,17 @@ function filenameFromContentDisposition(header: string | null): string | null {
 
 /* ========== Componente principal ========== */
 export default function App() {
-  const [vista, setVista] = useState<"home" | "lista" | "form" | "evaluador_doc">("home");
+  const [vista, setVista] = useState<"home" | "lista" | "form" | "evaluador_doc" | "historial_evaluador">("home");
   const [rol, setRol] = useState<RolApp | null>(null);
   const [docEvaluador, setDocEvaluador] = useState<DocEvaluador | null>(null);
   const [proyectoEvaluador, setProyectoEvaluador] = useState<ProyectoEvaluador | null>(null);
+  const [historialEvaluador, setHistorialEvaluador] = useState<ObservacionEvaluacionItem[]>([]);
+  const [historialLoading, setHistorialLoading] = useState(false);
+  const [historialPdfId, setHistorialPdfId] = useState<number | null>(null);
   const [contenidoEvaluador, setContenidoEvaluador] = useState("");
   const [nombreEvaluador, setNombreEvaluador] = useState("");
   const [cargoEvaluador, setCargoEvaluador] = useState("");
+  const [numeroDocumentoEvaluador, setNumeroDocumentoEvaluador] = useState("");
   const [fechaEvaluador, setFechaEvaluador] = useState(todayISODate());
   const [conceptoTecnicoDep, setConceptoTecnicoDep] = useState<SiNo>("");
   const [conceptoSectorialDep, setConceptoSectorialDep] = useState<SiNo>("");
@@ -1123,6 +1134,8 @@ export default function App() {
     const rowId = getRowId(p);
     const nombreFila = String(p.nombre ?? p.nombre_proyecto ?? "(sin nombre)");
     const codFila = String(p.cod_id_mga ?? p.cod_mga ?? p.codigo_mga ?? "");
+    const radicadoFila = String(p.numero_radicacion ?? p.radicado ?? "");
+    const bpinFila = String(p.bpin ?? "");
     const depFila = p.id_dependencia ?? p.dependencia_id;
     const depNombre = deps.find(x => x.id === depFila)?.nombre ?? String(depFila ?? "");
 
@@ -1131,12 +1144,15 @@ export default function App() {
       nombre: nombreFila,
       codMGA: codFila,
       dependencia: depNombre,
+      radicado: radicadoFila,
+      bpin: bpinFila,
     });
     setDocEvaluador(tipo);
     const baseContent = initialDocContent(tipo);
     setContenidoEvaluador(baseContent);
     setNombreEvaluador("");
     setCargoEvaluador("");
+    setNumeroDocumentoEvaluador("");
     setFechaEvaluador(todayISODate());
     setConceptoTecnicoDep("");
     setConceptoSectorialDep("");
@@ -1159,6 +1175,13 @@ export default function App() {
     try {
       try {
         const form = await fetchJson(`/proyecto/formulario/${rowId}`);
+        setProyectoEvaluador((prev) => prev ? {
+          ...prev,
+          nombre: String(form?.nombre_proyecto ?? prev.nombre),
+          codMGA: String(form?.cod_id_mga ?? prev.codMGA),
+          radicado: String(form?.numero_radicacion ?? prev.radicado ?? ""),
+          bpin: String(form?.bpin ?? prev.bpin ?? ""),
+        } : prev);
         const metasForm = Array.isArray(form?.metas) ? form.metas : [];
         setMetasPddEvaluador(
           metasForm.map((m: any) => ({
@@ -1215,6 +1238,7 @@ export default function App() {
       setContenidoEvaluador(ultimo.contenido_html || baseContent);
       setNombreEvaluador(ultimo.nombre_evaluador || "");
       setCargoEvaluador(String(ultimo.cargo_evaluador || ""));
+      setNumeroDocumentoEvaluador(String(ultimo.numero_documento || ""));
       setFechaEvaluador(todayISODate());
       setConceptoTecnicoDep((ultimo.concepto_tecnico_favorable_dep as SiNo) || "");
       setConceptoSectorialDep((ultimo.concepto_sectorial_favorable_dep as SiNo) || "");
@@ -1233,8 +1257,16 @@ export default function App() {
           ? indicadoresGuardados
           : [{ indicador_objetivo_general: "", unidad_medida: "", meta_resultado: "" }]
       );
-      setProductosAjustados([{ descripcion: "", unidad_medida: "", meta_programada: "", meta_alcanzada: "" }]);
-      setResultadosAjustados([{ descripcion: "", unidad_medida: "", meta_programada: "", meta_alcanzada: "" }]);
+      setProductosAjustados(
+        tipo === "viabilidad_ajustada"
+          ? normalizeMedicionesAjustadas(ultimo.productos_ajustados)
+          : [{ descripcion: "", unidad_medida: "", meta_programada: "", meta_alcanzada: "" }]
+      );
+      setResultadosAjustados(
+        tipo === "viabilidad_ajustada"
+          ? normalizeMedicionesAjustadas(ultimo.resultados_ajustados)
+          : [{ descripcion: "", unidad_medida: "", meta_programada: "", meta_alcanzada: "" }]
+      );
       setTimeout(() => {
         if (editorRef.current) editorRef.current.innerHTML = ultimo.contenido_html || baseContent;
       }, 0);
@@ -1504,6 +1536,18 @@ export default function App() {
     return (tmp.textContent || "").trim().length > 0 || tmp.querySelector("img") != null;
   }
 
+  function normalizeMedicionesAjustadas(items?: MedicionAjustadaItem[] | null): MedicionAjustadaItem[] {
+    const rows = (Array.isArray(items) ? items : [])
+      .map((x) => ({
+        descripcion: String(x?.descripcion ?? ""),
+        unidad_medida: String(x?.unidad_medida ?? ""),
+        meta_programada: String(x?.meta_programada ?? ""),
+        meta_alcanzada: String(x?.meta_alcanzada ?? ""),
+      }))
+      .filter((x) => x.descripcion || x.unidad_medida || x.meta_programada || x.meta_alcanzada);
+    return rows.length ? rows : [{ descripcion: "", unidad_medida: "", meta_programada: "", meta_alcanzada: "" }];
+  }
+
   async function guardarEstructuraFinancieraAjustada(formId: number) {
     if (yearsEFAjustada.length !== 4) {
       throw new Error("Debes ingresar cuatro años válidos y sin repetir para la estructura financiera ajustada.");
@@ -1550,7 +1594,7 @@ export default function App() {
   async function guardarRegistroEvaluador(
     tipo: "OBSERVACIONES" | "VIABILIDAD" | "VIABILIDAD_AJUSTADA",
     html: string
-  ) {
+  ): Promise<ObservacionEvaluacionItem> {
     const formId = proyectoEvaluador?.id;
     if (!formId) {
       throw new Error("No se encontro un formulario valido para guardar la observacion.");
@@ -1584,6 +1628,7 @@ export default function App() {
         contenido_html: html,
         nombre_evaluador: nombreEvaluador.trim(),
         cargo_evaluador: cargoEvaluador.trim(),
+        numero_documento: tipo !== "VIABILIDAD" ? numeroDocumentoEvaluador.trim() : null,
         indicadores_objetivo: tipo === "VIABILIDAD"
           ? indicadoresObjetivo
               .map((x) => ({
@@ -1593,6 +1638,26 @@ export default function App() {
               }))
               .filter((x) => x.indicador_objetivo_general || x.unidad_medida || x.meta_resultado)
           : [],
+        productos_ajustados: tipo === "VIABILIDAD_AJUSTADA"
+          ? productosAjustados
+              .map((x) => ({
+                descripcion: (x.descripcion || "").trim(),
+                unidad_medida: (x.unidad_medida || "").trim(),
+                meta_programada: (x.meta_programada || "").trim(),
+                meta_alcanzada: (x.meta_alcanzada || "").trim(),
+              }))
+              .filter((x) => x.descripcion || x.unidad_medida || x.meta_programada || x.meta_alcanzada)
+          : [],
+        resultados_ajustados: tipo === "VIABILIDAD_AJUSTADA"
+          ? resultadosAjustados
+              .map((x) => ({
+                descripcion: (x.descripcion || "").trim(),
+                unidad_medida: (x.unidad_medida || "").trim(),
+                meta_programada: (x.meta_programada || "").trim(),
+                meta_alcanzada: (x.meta_alcanzada || "").trim(),
+              }))
+              .filter((x) => x.descripcion || x.unidad_medida || x.meta_programada || x.meta_alcanzada)
+          : [],
         concepto_tecnico_favorable_dep: tipo !== "OBSERVACIONES" ? (conceptoTecnicoDep || null) : null,
         concepto_sectorial_favorable_dep: tipo !== "OBSERVACIONES" ? (conceptoSectorialDep || null) : null,
         proyecto_viable_dep: tipo !== "OBSERVACIONES" ? (proyectoViableDep || null) : null,
@@ -1601,6 +1666,110 @@ export default function App() {
     if (!res.ok) {
       const err = await res.text().catch(() => "");
       throw new Error(err || "No se pudo guardar el registro de evaluacion.");
+    }
+    return await res.json();
+  }
+
+  function tipoDocumentoLabel(tipo: string) {
+    if (tipo === "VIABILIDAD_AJUSTADA") return "VIABILIDAD AJUSTADA";
+    if (tipo === "VIABILIDAD") return "VIABILIDAD";
+    return "OBSERVACIONES";
+  }
+
+  function tituloDocumentoHistorial(item: ObservacionEvaluacionItem) {
+    const numero = String(item.numero_documento || "").trim();
+    if (item.tipo_documento === "VIABILIDAD_AJUSTADA") {
+      return `VIABILIDAD AJUSTADA${numero ? ` No.${numero}` : ""}`;
+    }
+    if (item.tipo_documento === "OBSERVACIONES") {
+      return `OBSERVACIONES${numero ? ` No.${numero}` : ""}`;
+    }
+    return proyectoEvaluador?.bpin ? "VIABILIDAD" : "VIABILIDAD PARA CARGUE";
+  }
+
+  function formatFechaHistorial(value: string) {
+    if (!value) return "";
+    const d = new Date(value);
+    if (Number.isNaN(d.getTime())) return value.slice(0, 10);
+    const day = String(d.getDate()).padStart(2, "0");
+    const month = String(d.getMonth() + 1).padStart(2, "0");
+    const year = d.getFullYear();
+    let hour = d.getHours();
+    const suffix = hour >= 12 ? "PM" : "AM";
+    hour = hour % 12 || 12;
+    const minute = String(d.getMinutes()).padStart(2, "0");
+    return `${day}/${month}/${year} ${hour}:${minute} ${suffix}`;
+  }
+
+  async function openHistorialEvaluador(p: ProyectoListaItemFlex) {
+    const rowId = await ensureRowFormId(p);
+    if (!rowId) {
+      alert("No se pudo obtener el proyecto para consultar el historial.");
+      return;
+    }
+
+    const depFila = p.id_dependencia ?? p.dependencia_id;
+    const depNombre = deps.find(x => x.id === depFila)?.nombre ?? String(depFila ?? "");
+    setHistorialLoading(true);
+    setHistorialEvaluador([]);
+    setProyectoEvaluador({
+      id: rowId,
+      nombre: String(p.nombre ?? p.nombre_proyecto ?? "(sin nombre)"),
+      codMGA: String(p.cod_id_mga ?? p.cod_mga ?? p.codigo_mga ?? ""),
+      dependencia: depNombre,
+      radicado: String(p.numero_radicacion ?? p.radicado ?? ""),
+      bpin: String(p.bpin ?? ""),
+    });
+    setVista("historial_evaluador");
+
+    try {
+      const [form, rows] = await Promise.all([
+        fetchJson(`/proyecto/formulario/${rowId}`),
+        fetchJson(`/proyecto/formulario/${rowId}/observaciones`),
+      ]);
+      setProyectoEvaluador((prev) => prev ? {
+        ...prev,
+        nombre: String(form?.nombre_proyecto ?? prev.nombre),
+        codMGA: String(form?.cod_id_mga ?? prev.codMGA),
+        radicado: String(form?.numero_radicacion ?? prev.radicado ?? ""),
+        bpin: String(form?.bpin ?? prev.bpin ?? ""),
+      } : prev);
+      setHistorialEvaluador(Array.isArray(rows) ? rows : []);
+    } catch (e: any) {
+      alert(e?.message || "No se pudo cargar el historial.");
+    } finally {
+      setHistorialLoading(false);
+    }
+  }
+
+  async function generarPdfHistorial(item: ObservacionEvaluacionItem, modo: "visualizar" | "descargar") {
+    setHistorialPdfId(item.id);
+    try {
+      const filename = item.pdf_filename || `${tipoDocumentoLabel(item.tipo_documento)}.pdf`;
+      const endpoint = `${API_BASE_DEFAULT}/descarga/evaluador/historial/pdf/${item.id}/${encodeURIComponent(filename)}`;
+      if (modo === "visualizar") {
+        window.open(`${endpoint}?inline=true`, "_blank", "noopener,noreferrer");
+        return;
+      }
+
+      const res = await fetch(endpoint);
+      if (!res.ok) {
+        const err = await res.text().catch(() => "");
+        throw new Error(err || "No fue posible generar el PDF del historial.");
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filenameFromContentDisposition(res.headers.get("Content-Disposition")) || filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e: any) {
+      alert(e?.message || "No se pudo generar el PDF del historial.");
+    } finally {
+      setHistorialPdfId(null);
     }
   }
 
@@ -1634,14 +1803,19 @@ export default function App() {
         : docEvaluador === "viabilidad_ajustada"
           ? "VIABILIDAD_AJUSTADA"
           : "OBSERVACIONES";
+    if (tipoDoc !== "VIABILIDAD" && !numeroDocumentoEvaluador.trim()) {
+      alert("Ingresa el numero del documento.");
+      return;
+    }
     if (tipoDoc !== "OBSERVACIONES") {
       if (!conceptoTecnicoDep || !conceptoSectorialDep || !proyectoViableDep) {
         alert("Completa los checks del Analisis de viabilidad.");
         return;
       }
     }
+    let registroHistorico: ObservacionEvaluacionItem;
     try {
-      await guardarRegistroEvaluador(tipoDoc, html);
+      registroHistorico = await guardarRegistroEvaluador(tipoDoc, html);
     } catch (e: any) {
       alert(e?.message || "No fue posible guardar en BD.");
       return;
@@ -1666,6 +1840,8 @@ export default function App() {
         nombre_evaluador: nombreEvaluador.trim(),
         cargo_evaluador: cargoEvaluador.trim(),
         fecha_evaluador: fechaEvaluador,
+        observacion_id: registroHistorico.id,
+        numero_documento: tipoDoc !== "VIABILIDAD" ? numeroDocumentoEvaluador.trim() : null,
         indicadores_objetivo: indicadoresObjetivo
           .map((x) => ({
             indicador_objetivo_general: (x.indicador_objetivo_general || "").trim(),
@@ -1927,7 +2103,7 @@ export default function App() {
                   <th className="px-3 py-2 text-left w-[38%]">Nombre</th>
                   <th className="px-3 py-2 text-left w-28">Cod. MGA</th>
                   <th className="px-3 py-2 text-left w-1/4">Dependencia</th>
-                  <th className="px-3 py-2 text-right w-24">Acciones</th>
+                  <th className="px-3 py-2 text-right w-72">Acciones</th>
                 </tr>
               </thead>
               <tbody>
@@ -1970,7 +2146,14 @@ export default function App() {
                               Radicar
                             </Button>
                           ) : (
-                            <div className="flex items-center justify-end gap-2">
+                            <div className="flex flex-wrap items-center justify-end gap-2">
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => { void openHistorialEvaluador(p); }}
+                              >
+                                Ver historial
+                              </Button>
                               <Button
                                 size="sm"
                                 variant="secondary"
@@ -2120,6 +2303,94 @@ export default function App() {
     );
   }
 
+  if (vista === "historial_evaluador") {
+    return (
+      <div key="historial-evaluador-view" className="min-h-screen bg-gradient-to-b from-slate-50 to-white p-4 md:p-8">
+        <div className="mx-auto max-w-6xl space-y-6">
+          <div className="flex items-start justify-between gap-3">
+            <div className="space-y-1">
+              <h1 className="text-2xl md:text-3xl font-bold tracking-tight">Historial de documentos</h1>
+              <p className="text-sm text-slate-600">Línea temporal de documentos generados por evaluación.</p>
+            </div>
+            <Button variant="outline" className="gap-2" onClick={() => setVista("lista")}>
+              <ArrowLeft className="h-4 w-4" /> Atrás
+            </Button>
+          </div>
+
+          <Card className="shadow-sm">
+            <CardContent className="p-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+                <div>
+                  <div className="text-slate-500">Nombre</div>
+                  <div className="font-medium break-words">{proyectoEvaluador?.nombre || "-"}</div>
+                </div>
+                <div>
+                  <div className="text-slate-500">Radicado</div>
+                  <div className="font-medium break-words">{proyectoEvaluador?.radicado || "-"}</div>
+                </div>
+                <div>
+                  <div className="text-slate-500">BPIN</div>
+                  <div className="font-medium break-words">{proyectoEvaluador?.bpin || "-"}</div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <div className="overflow-auto rounded-xl border bg-white">
+            <table className="min-w-[900px] w-full text-sm table-fixed">
+              <thead className="bg-slate-100">
+                <tr>
+                  <th className="px-3 py-2 text-left w-40">Fecha</th>
+                  <th className="px-3 py-2 text-left w-56">Tipo de documento</th>
+                  <th className="px-3 py-2 text-left">Nombre del evaluador</th>
+                  <th className="px-3 py-2 text-right w-64">Documento en PDF</th>
+                </tr>
+              </thead>
+              <tbody>
+                {historialLoading ? (
+                  <tr><td colSpan={4} className="px-3 py-10 text-center text-slate-500">Cargando historial...</td></tr>
+                ) : historialEvaluador.length === 0 ? (
+                  <tr><td colSpan={4} className="px-3 py-10 text-center text-slate-500">No hay documentos generados para este proyecto.</td></tr>
+                ) : (
+                  historialEvaluador.map((item) => (
+                    <tr key={item.id} className="border-t align-top">
+                      <td className="px-3 py-2">{formatFechaHistorial(item.created_at)}</td>
+                      <td className="px-3 py-2 font-medium">{tituloDocumentoHistorial(item)}</td>
+                      <td className="px-3 py-2 break-words whitespace-pre-wrap">{item.nombre_evaluador || "-"}</td>
+                      <td className="px-3 py-2">
+                        {item.pdf_disponible ? (
+                          <div className="flex items-center justify-end gap-2">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              disabled={historialPdfId === item.id}
+                              onClick={() => { void generarPdfHistorial(item, "visualizar"); }}
+                            >
+                              Visualizar
+                            </Button>
+                            <Button
+                              size="sm"
+                              disabled={historialPdfId === item.id}
+                              onClick={() => { void generarPdfHistorial(item, "descargar"); }}
+                            >
+                              Descargar
+                            </Button>
+                          </div>
+                        ) : (
+                          <div className="text-right text-xs text-slate-500">PDF no guardado</div>
+                        )}
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (vista === "evaluador_doc") {
     const tituloDoc =
       docEvaluador === "viabilidad"
@@ -2154,6 +2425,7 @@ export default function App() {
                 setContenidoEvaluador("");
                 setNombreEvaluador("");
                 setCargoEvaluador("");
+                setNumeroDocumentoEvaluador("");
                 setFechaEvaluador(todayISODate());
                 setIndicadoresObjetivo([{ indicador_objetivo_general: "", unidad_medida: "", meta_resultado: "" }]);
                 setProductosAjustados([{ descripcion: "", unidad_medida: "", meta_programada: "", meta_alcanzada: "" }]);
@@ -2706,7 +2978,7 @@ export default function App() {
           </Card>
 
           <Card className="shadow-sm">
-            <CardContent className="p-4 grid grid-cols-1 md:grid-cols-5 gap-3 items-end">
+            <CardContent className="p-4 grid grid-cols-1 md:grid-cols-6 gap-3 items-end">
               <div className="md:col-span-2">
                 <Label>Nombre del evaluador</Label>
                 <Input
@@ -2723,6 +2995,16 @@ export default function App() {
                   placeholder="Cargo"
                 />
               </div>
+              {docEvaluador !== "viabilidad" && (
+                <div>
+                  <Label>Número del documento</Label>
+                  <Input
+                    value={numeroDocumentoEvaluador}
+                    onChange={(e) => setNumeroDocumentoEvaluador(e.target.value)}
+                    placeholder="Ej. 2"
+                  />
+                </div>
+              )}
               <div>
                 <Label>Fecha del evaluador</Label>
                 <Input

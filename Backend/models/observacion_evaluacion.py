@@ -1,4 +1,5 @@
-from sqlalchemy import Column, Integer, Text, ForeignKey, DateTime
+from sqlalchemy import Column, Integer, Text, ForeignKey, DateTime, LargeBinary
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship, backref
 from sqlalchemy.sql import func
 from Backend.utils.database import Base
@@ -13,9 +14,15 @@ class ObservacionEvaluacion(Base):
     contenido_html = Column(Text, nullable=False)
     nombre_evaluador = Column(Text, nullable=False)
     cargo_evaluador = Column(Text, nullable=True)
+    numero_documento = Column(Text, nullable=True)
     concepto_tecnico_favorable_dep = Column(Text, nullable=True)   # SI | NO
     concepto_sectorial_favorable_dep = Column(Text, nullable=True) # SI | NO
     proyecto_viable_dep = Column(Text, nullable=True)              # SI | NO
+    productos_ajustados = Column(JSONB, nullable=True)
+    resultados_ajustados = Column(JSONB, nullable=True)
+    pdf_bytes = Column(LargeBinary, nullable=True)
+    pdf_filename = Column(Text, nullable=True)
+    pdf_content_type = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     formulario = relationship(

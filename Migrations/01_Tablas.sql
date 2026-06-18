@@ -232,9 +232,15 @@ CREATE TABLE observacion_evaluacion (
     contenido_html TEXT NOT NULL,
     nombre_evaluador TEXT NOT NULL,
     cargo_evaluador TEXT,
+    numero_documento TEXT,
     concepto_tecnico_favorable_dep TEXT,
     concepto_sectorial_favorable_dep TEXT,
     proyecto_viable_dep TEXT,
+    productos_ajustados JSONB,
+    resultados_ajustados JSONB,
+    pdf_bytes BYTEA,
+    pdf_filename TEXT,
+    pdf_content_type TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 

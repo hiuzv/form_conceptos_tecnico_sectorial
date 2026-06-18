@@ -238,12 +238,21 @@ class IndicadorObjetivoEvaluacionIn(BaseModel):
     unidad_medida: str = ""
     meta_resultado: str = ""
 
+class MedicionAjustadaEvaluacionIn(BaseModel):
+    descripcion: str = ""
+    unidad_medida: str = ""
+    meta_programada: str = ""
+    meta_alcanzada: str = ""
+
 class ObservacionEvaluacionCreate(BaseModel):
     tipo_documento: str  # OBSERVACIONES | VIABILIDAD | VIABILIDAD_AJUSTADA
     contenido_html: str
     nombre_evaluador: str
     cargo_evaluador: Optional[str] = None
+    numero_documento: Optional[str] = None
     indicadores_objetivo: List[IndicadorObjetivoEvaluacionIn] = []
+    productos_ajustados: List[MedicionAjustadaEvaluacionIn] = []
+    resultados_ajustados: List[MedicionAjustadaEvaluacionIn] = []
     concepto_tecnico_favorable_dep: Optional[str] = None
     concepto_sectorial_favorable_dep: Optional[str] = None
     proyecto_viable_dep: Optional[str] = None
@@ -256,10 +265,15 @@ class ObservacionEvaluacionRead(BaseModel):
     contenido_html: str
     nombre_evaluador: str
     cargo_evaluador: Optional[str] = None
+    numero_documento: Optional[str] = None
     indicadores_objetivo: List[IndicadorObjetivoEvaluacionIn] = []
+    productos_ajustados: List[MedicionAjustadaEvaluacionIn] = []
+    resultados_ajustados: List[MedicionAjustadaEvaluacionIn] = []
     concepto_tecnico_favorable_dep: Optional[str] = None
     concepto_sectorial_favorable_dep: Optional[str] = None
     proyecto_viable_dep: Optional[str] = None
+    pdf_disponible: bool = False
+    pdf_filename: Optional[str] = None
     created_at: datetime
 
     class Config:
